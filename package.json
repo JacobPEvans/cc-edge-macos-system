@@ -1,0 +1,13 @@
+{
+  "name": "cc-edge-macos-system",
+  "version": "1.0.0",
+  "minLogStreamVersion": "4.16.0",
+  "author": "VisiCore Tech - CriblPacks@VisiCoreTech.com",
+  "description": "Cribl Edge Pack that collects macOS system health data including memory pressure, WindowServer ping timeouts, Jetsam events, process stats, disk I/O, VM stats, and thermal status for system monitoring and anomaly detection.",
+  "displayName": "macOS System Health Monitoring Pack For Edge",
+  "tags": {
+    "streamtags": ["vct", "macos", "system", "monitoring"],
+    "dataType": ["metrics", "logs"]
+  },
+  "exports": []
+}

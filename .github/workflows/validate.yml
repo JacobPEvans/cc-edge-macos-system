@@ -1,0 +1,23 @@
+name: Validate
+on:
+  push:
+    paths:
+      - "default/**"
+      - "data/**"
+      - "package.json"
+      - ".github/workflows/validate.yml"
+  pull_request:
+    paths:
+      - "default/**"
+      - "data/**"
+      - "package.json"
+      - ".github/workflows/validate.yml"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  validate:
+    uses: JacobPEvans/.github/.github/workflows/_cribl-pack-validate.yml@main
+    with:
+      pack-type: edge

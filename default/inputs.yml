@@ -1,0 +1,84 @@
+inputs:
+  macos-memory-pressure:
+    type: exec
+    disabled: false
+    sendToRoutes: true
+    pqEnabled: false
+    streamtags: []
+    command: "memory_pressure"
+    interval: 60
+    metadata:
+      - name: datatype
+        value: "'macos-system-memory'"
+
+  macos-windowserver-health:
+    type: exec
+    disabled: false
+    sendToRoutes: true
+    pqEnabled: false
+    streamtags: []
+    command: "/usr/bin/log show --last 65s --predicate 'process == \"WindowServer\" AND eventMessage CONTAINS \"ping\"' --style json"
+    interval: 60
+    metadata:
+      - name: datatype
+        value: "'macos-system-windowserver'"
+
+  macos-jetsam-events:
+    type: exec
+    disabled: false
+    sendToRoutes: true
+    pqEnabled: false
+    streamtags: []
+    command: "/bin/bash -c 'f=$(ls -t /Library/Logs/DiagnosticReports/JetsamEvent-*.ips 2>/dev/null | head -1); if [ -n \"$f\" ]; then ts=$(stat -f %m \"$f\"); now=$(date +%s); age=$((now - ts)); if [ $age -le 300 ]; then tail -n +2 \"$f\"; else echo \"{\\\"no_recent_jetsam\\\":true}\"; fi; else echo \"{\\\"no_recent_jetsam\\\":true}\"; fi'"
+    interval: 300
+    metadata:
+      - name: datatype
+        value: "'macos-system-jetsam'"
+
+  macos-process-top:
+    type: exec
+    disabled: false
+    sendToRoutes: true
+    pqEnabled: false
+    streamtags: []
+    command: "top -l 1 -n 20 -stats pid,command,cpu,mem,rprvt,purg,vsize,threads"
+    interval: 60
+    metadata:
+      - name: datatype
+        value: "'macos-system-process'"
+
+  macos-disk-io:
+    type: exec
+    disabled: false
+    sendToRoutes: true
+    pqEnabled: false
+    streamtags: []
+    command: "iostat -d -c 2 -w 1"
+    interval: 60
+    metadata:
+      - name: datatype
+        value: "'macos-system-diskio'"
+
+  macos-vm-stat:
+    type: exec
+    disabled: false
+    sendToRoutes: true
+    pqEnabled: false
+    streamtags: []
+    command: "vm_stat"
+    interval: 60
+    metadata:
+      - name: datatype
+        value: "'macos-system-vmstat'"
+
+  macos-thermal:
+    type: exec
+    disabled: false
+    sendToRoutes: true
+    pqEnabled: false
+    streamtags: []
+    command: "pmset -g therm"
+    interval: 60
+    metadata:
+      - name: datatype
+        value: "'macos-system-thermal'"
