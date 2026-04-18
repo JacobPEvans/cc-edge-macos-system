@@ -1,6 +1,6 @@
-# cc-edge-macos-system
+# cc-edge-the-mac-pack-io
 
-Cribl Edge pack for macOS system health monitoring and anomaly detection.
+Cribl Edge pack for comprehensive macOS system and power monitoring.
 
 ## Version Policy
 
@@ -20,12 +20,12 @@ This pack uses **semantic versioning**.
 4. Merge PR to main
 5. Create GitHub release with the `.crbl` artifact built locally:
    ```sh
-   tar -czf cc-edge-macos-system-vX.Y.Z.crbl data default package.json README.md
-   cp cc-edge-macos-system-vX.Y.Z.crbl cc-edge-macos-system.crbl
+   tar -czf cc-edge-the-mac-pack-io-vX.Y.Z.crbl data default package.json README.md
+   cp cc-edge-the-mac-pack-io-vX.Y.Z.crbl cc-edge-the-mac-pack-io.crbl
    gh release create vX.Y.Z --draft \
-     --repo JacobPEvans/cc-edge-macos-system \
-     cc-edge-macos-system-vX.Y.Z.crbl cc-edge-macos-system.crbl
-   gh release edit vX.Y.Z --repo JacobPEvans/cc-edge-macos-system --draft=false
+     --repo JacobPEvans/cc-edge-the-mac-pack-io \
+     cc-edge-the-mac-pack-io-vX.Y.Z.crbl cc-edge-the-mac-pack-io.crbl
+   gh release edit vX.Y.Z --repo JacobPEvans/cc-edge-the-mac-pack-io --draft=false
    ```
 
 ## File Operations

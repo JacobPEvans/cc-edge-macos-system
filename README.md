@@ -1,10 +1,12 @@
-# cc-edge-macos-system
+# cc-edge-the-mac-pack-io
 
-Cribl Edge Pack for macOS system health monitoring and anomaly detection.
+Cribl Edge Pack for comprehensive macOS system and power monitoring.
+
+> Supersedes `cc-edge-macos-system` and `cc-edge-macos-power` — both repos are archived.
 
 ## Overview
 
-Collects macOS system health data via native system tools (`memory_pressure`, `log`, `top`, `iostat`, `vm_stat`, `pmset`) using Cribl Edge Exec sources. Designed to detect UI freezes (WindowServer ping timeouts), memory pressure events, Jetsam kills, and other system anomalies. Flows through Cribl Stream into Splunk (or any destination) for analysis and alerting.
+Collects macOS system health and power data via native system tools using Cribl Edge Exec sources. Covers CPU, memory, disk, virtual memory, process stats, thermal state, WindowServer health, Jetsam events, per-process energy impact, and battery lifecycle. All events flow through Cribl Stream into Splunk (or any destination).
 
 This pack is the macOS equivalent of Splunk's Splunk_TA_nix and Splunk_TA_windows — delivering comprehensive operating system telemetry via Cribl Edge instead of scripted inputs on the Splunk forwarder.
 
@@ -47,7 +49,7 @@ This pack was born from a real incident: a 60-second MacBook UI freeze went unde
 - **Command**: `top -l 1 -n 20 -stats pid,command,cpu,mem,rprvt,purg,vsize,threads`
 - **Sourcetype**: `macos:system:process`
 - **Captures**: Top 20 processes by CPU with memory, resident private, purgeable, virtual size, and thread counts
-- **Requires**: Root privileges (top requires elevated permissions for process enumeration)
+- **Requires**: Root privileges
 
 ### Disk I/O (`macos-disk-io`)
 
@@ -73,16 +75,35 @@ This pack was born from a real incident: a 60-second MacBook UI freeze went unde
 - **Captures**: Thermal warning level, performance warning level, CPU power status
 - **Requires**: No special privileges
 
+### Power Metrics (`macos-power-metrics`)
+
+- **Interval**: 300 seconds (5 minutes)
+- **Command**: `powermetrics --samplers tasks,battery,cpu_power,gpu_power,ane_power,thermal --show-process-energy -f plist -n 1 -i 5000 | plutil -convert json -o - -`
+- **Sourcetype**: `macos:power:metrics`
+- **Captures**: Per-process energy impact (top 10), CPU package power (mW), GPU power, ANE power, thermal pressure state, processor frequency
+- **Anomaly**: `thermal_pressure !== 'Nominal'` sets `anomaly=true`
+- **Requires**: Root privileges
+
+### Battery Health (`macos-power-battery`)
+
+- **Interval**: 60 seconds
+- **Command**: Bash combining `pmset -g batt` + `ioreg -r -c AppleSmartBattery`
+- **Sourcetype**: `macos:power:battery`
+- **Captures**: Charge percentage, power source (AC/Battery), charging state, cycle count, max/design/current capacity, temperature, voltage
+- **Derived**: `battery_health_percent = max_capacity / design_capacity × 100`
+- **Anomaly**: `battery_health_percent < 80` sets `anomaly=true`
+- **Requires**: No special privileges
+
 ## Data Flow
 
 ```
-memory_pressure / log / top / iostat / vm_stat / pmset  (Exec Sources)
+memory_pressure / log / top / iostat / vm_stat / pmset / powermetrics / ioreg
     |
 Cribl Edge (native macOS, /opt/cribl/)
     |  HEC
 Cribl Stream
     |  HEC
-Splunk -> index: os, sourcetype: macos:system:{type}
+Splunk -> index: os, sourcetype: macos:system:{type} or macos:power:{type}
 ```
 
 ## Anomaly Detection
@@ -94,27 +115,31 @@ The pipeline automatically flags anomalous events with `anomaly=true` and `anoma
 | Memory free < 10% | `memory_pressure_critical` |
 | Any WindowServer ping timeout | `windowserver_ping_timeout` |
 | Recent Jetsam event detected | `jetsam_event_detected` |
+| Battery health < 80% | `battery_health_degraded` |
+| Thermal pressure not Nominal | `thermal_pressure_elevated` |
 
 Use these fields in Splunk (or any destination) to build alerts:
 
 ```spl
-index=os sourcetype=macos:system:* anomaly=true
+index=os sourcetype=macos:system:* OR sourcetype=macos:power:* anomaly=true
 | stats count by host, anomaly_reason, _time
 ```
 
 ## Usage
 
-Once installed, the pack automatically collects data on the configured intervals. All sources route events to the `os` index with `macos:system:*` sourcetypes.
+Once installed, the pack automatically collects data on the configured intervals. All system sources use `macos:system:*` sourcetypes; power/battery sources use `macos:power:*` sourcetypes. All events go to the `os` index.
 
-To customize, create local overrides in `/opt/cribl/local/cc-edge-macos-system/`:
+To customize, create local overrides in `/opt/cribl/local/cc-edge-the-mac-pack-io/`:
 
 ```yaml
-# /opt/cribl/local/cc-edge-macos-system/inputs.yml
+# /opt/cribl/local/cc-edge-the-mac-pack-io/inputs.yml
 inputs:
   macos-windowserver-health:
     interval: 30  # Check more frequently for UI freezes
   macos-process-top:
-    disabled: true  # Disable if top privileges unavailable
+    disabled: true  # Disable if root unavailable
+  macos-power-metrics:
+    disabled: true  # Disable if root unavailable
 ```
 
 ## Installation
@@ -122,13 +147,11 @@ inputs:
 1. Copy pack to Cribl Edge or install via API:
 
    ```bash
-   # Copy .crbl file to Edge
-   cp cc-edge-macos-system.crbl /opt/cribl/state/packs/
+   cp cc-edge-the-mac-pack-io.crbl /opt/cribl/state/packs/
 
-   # Install via API
    curl -X POST http://localhost:9000/api/v1/packs \
      -H "Content-Type: application/json" \
-     -d '{"source":"cc-edge-macos-system.crbl"}'
+     -d '{"source":"cc-edge-the-mac-pack-io.crbl"}'
    ```
 
 2. Commit and restart:
@@ -166,19 +189,41 @@ inputs:
 | memoryStatus | object | System memory status including page counts and compressor stats |
 | processes | array | List of processes with memory details and states |
 
+### Power Metrics Events (`macos:power:metrics`)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| top_processes | array | Top 10 processes by energy impact `{name, pid, energy_impact}` |
+| thermal_pressure | string | Thermal pressure state (`Nominal`, `Moderate`, `Heavy`, `Trapping`) |
+| processor | object | CPU package power (mW), frequency per cluster |
+| gpu | object | GPU power (mW) |
+| ane_power | number | Apple Neural Engine power (mW) |
+
+### Battery Events (`macos:power:battery`)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| charge_percent | number | Current charge percentage |
+| power_source | string | `AC` or `Battery` |
+| charging_state | string | `charging`, `discharging`, `charged`, or `unknown` |
+| cycle_count | number | Battery charge cycle count |
+| max_capacity | number | Current maximum capacity (mAh) |
+| design_capacity | number | Original design capacity (mAh) |
+| battery_health_percent | number | Derived: `max_capacity / design_capacity × 100` |
+| temperature | number | Battery temperature (hundredths of °C) |
+| voltage | number | Battery voltage (mV) |
+
 ### Common Fields (all sourcetypes)
 
 | Field | Type | Description |
 |-------|------|-------------|
 | index | string | Always `os` |
-| sourcetype | string | `macos:system:{type}` |
+| sourcetype | string | `macos:system:{type}` or `macos:power:{type}` |
 | host | string | Hostname of the Edge node |
 | anomaly | boolean | `true` when anomaly detected (absent otherwise) |
 | anomaly_reason | string | Anomaly type identifier (absent when no anomaly) |
 
 ## Future Roadmap
-
-This pack aims to become the definitive macOS system monitoring pack for Cribl Edge. Planned future sources include:
 
 - **Network statistics** (`netstat`, `nettop`, interface metrics)
 - **Firewall status** (`socketfilterfw --getglobalstate`)
@@ -186,22 +231,23 @@ This pack aims to become the definitive macOS system monitoring pack for Cribl E
 - **Software update status** (`softwareupdate --list`)
 - **FileVault encryption status** (`fdesetup status`)
 - **SIP status** (`csrutil status`)
-- **Spotlight indexing** (`mdutil -s /`)
-- **Time Machine status** (`tmutil status`)
-- **Launch daemons/agents** inventory
-- **Open file descriptors** (`lsof` summary)
-- **CPU microarchitecture counters** (`powermetrics --samplers cpu_power`)
 - **Disk space** (`df -h`)
 - **System uptime and load** (`uptime`, `sysctl`)
-- **Kernel parameters** (`sysctl -a`)
-- **Installed software** (`system_profiler SPApplicationsDataType`)
+- **Open file descriptors** (`lsof` summary)
 
 ## Release Notes
 
+### v1.1.0 (2026-04-18)
+
+- Merged `cc-edge-macos-power` into this pack (both predecessor repos archived)
+- Renamed from `cc-edge-macos-system` to `cc-edge-the-mac-pack-io`
+- Added `macos-power-metrics` input: per-process energy impact, CPU/GPU/ANE power, thermal pressure (300s, root required)
+- Added `macos-power-battery` input: charge %, power source, cycle count, capacity, health % (60s)
+- Extended pipeline: battery health calculation, top-10 energy processes, thermal pressure anomaly, battery health anomaly
+- Sourcetype namespaces: `macos:system:*` (unchanged) and `macos:power:*` (new)
+
 ### v1.0.0 (2026-03-27)
 
-- Initial release
+- Initial release as `cc-edge-macos-system`
 - Seven Exec sources: WindowServer health (60s), memory pressure (60s), Jetsam events (5min), process stats (60s), disk I/O (60s), VM stats (60s), thermal status (60s)
-- Pipeline with field extraction for memory pressure and WindowServer events
 - Anomaly detection for memory pressure, WindowServer ping timeouts, and Jetsam events
-- All events indexed to `os` with `macos:system:*` sourcetypes

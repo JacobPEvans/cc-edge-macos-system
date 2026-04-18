@@ -9,7 +9,7 @@ routes:
     pipeline: main
     description: "macOS WindowServer ping timeout events (UI freeze detection)"
     enableOutputExpression: false
-    filter: __inputId=='exec:cc-edge-macos-system.macos-windowserver-health'
+    filter: __inputId=='exec:cc-edge-the-mac-pack-io.macos-windowserver-health'
     clones: []
     output: default
   - id: memory-pressure
@@ -19,7 +19,7 @@ routes:
     pipeline: main
     description: "macOS memory pressure stats (pages, swap, compressor, free percentage)"
     enableOutputExpression: false
-    filter: __inputId=='exec:cc-edge-macos-system.macos-memory-pressure'
+    filter: __inputId=='exec:cc-edge-the-mac-pack-io.macos-memory-pressure'
     clones: []
     output: default
   - id: jetsam-events
@@ -29,7 +29,7 @@ routes:
     pipeline: main
     description: "macOS Jetsam memory kill events from DiagnosticReports"
     enableOutputExpression: false
-    filter: __inputId=='exec:cc-edge-macos-system.macos-jetsam-events'
+    filter: __inputId=='exec:cc-edge-the-mac-pack-io.macos-jetsam-events'
     clones: []
     output: default
   - id: process-top
@@ -39,7 +39,7 @@ routes:
     pipeline: main
     description: "macOS top process statistics (CPU, memory, threads)"
     enableOutputExpression: false
-    filter: __inputId=='exec:cc-edge-macos-system.macos-process-top'
+    filter: __inputId=='exec:cc-edge-the-mac-pack-io.macos-process-top'
     clones: []
     output: default
   - id: disk-io
@@ -49,7 +49,7 @@ routes:
     pipeline: main
     description: "macOS disk I/O statistics (throughput, transactions, bandwidth)"
     enableOutputExpression: false
-    filter: __inputId=='exec:cc-edge-macos-system.macos-disk-io'
+    filter: __inputId=='exec:cc-edge-the-mac-pack-io.macos-disk-io'
     clones: []
     output: default
   - id: vm-stat
@@ -59,7 +59,7 @@ routes:
     pipeline: main
     description: "macOS virtual memory statistics (page faults, compressor, swap)"
     enableOutputExpression: false
-    filter: __inputId=='exec:cc-edge-macos-system.macos-vm-stat'
+    filter: __inputId=='exec:cc-edge-the-mac-pack-io.macos-vm-stat'
     clones: []
     output: default
   - id: thermal
@@ -69,6 +69,26 @@ routes:
     pipeline: main
     description: "macOS thermal and performance warning levels"
     enableOutputExpression: false
-    filter: __inputId=='exec:cc-edge-macos-system.macos-thermal'
+    filter: __inputId=='exec:cc-edge-the-mac-pack-io.macos-thermal'
+    clones: []
+    output: default
+  - id: power-metrics
+    name: Power Metrics (Exec Source)
+    final: true
+    disabled: false
+    pipeline: main
+    description: "macOS powermetrics — per-process energy, CPU/GPU/ANE power, thermal (root required)"
+    enableOutputExpression: false
+    filter: __inputId=='exec:cc-edge-the-mac-pack-io.macos-power-metrics'
+    clones: []
+    output: default
+  - id: power-battery
+    name: Battery Health (Exec Source)
+    final: true
+    disabled: false
+    pipeline: main
+    description: "macOS battery state, charge percentage, cycle count, capacity, temperature"
+    enableOutputExpression: false
+    filter: __inputId=='exec:cc-edge-the-mac-pack-io.macos-power-battery'
     clones: []
     output: default

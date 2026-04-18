@@ -82,3 +82,27 @@ inputs:
     metadata:
       - name: datatype
         value: "'macos-system-thermal'"
+
+  macos-power-metrics:
+    type: exec
+    disabled: false
+    sendToRoutes: true
+    pqEnabled: false
+    streamtags: []
+    command: "powermetrics --samplers tasks,battery,cpu_power,gpu_power,ane_power,thermal --show-process-energy -f plist -n 1 -i 5000 | /usr/bin/plutil -convert json -o - -"
+    interval: 300
+    metadata:
+      - name: datatype
+        value: "'macos-power-metrics'"
+
+  macos-power-battery:
+    type: exec
+    disabled: false
+    sendToRoutes: true
+    pqEnabled: false
+    streamtags: []
+    command: "/bin/bash -c 'batt=$(/usr/bin/pmset -g batt); ioreg=$(/usr/sbin/ioreg -r -c AppleSmartBattery -w0); pct=$(echo \"$batt\" | /usr/bin/awk \"/InternalBattery/{gsub(/[^0-9]/,\\\"\\\",\\$3);print \\$3}\"); src=$(echo \"$batt\" | /usr/bin/grep -q \"AC Power\" && echo AC || echo Battery); state=unknown; echo \"$batt\" | /usr/bin/grep -q \"discharging\" && state=discharging; echo \"$batt\" | /usr/bin/grep -q \"charging;\" && state=charging; echo \"$batt\" | /usr/bin/grep -q \"charged;\" && state=charged; cycle=$(echo \"$ioreg\" | /usr/bin/awk -F= \"/\\\"CycleCount\\\"/{gsub(/[^0-9]/,\\\"\\\",\\$2);print \\$2}\"); maxcap=$(echo \"$ioreg\" | /usr/bin/awk -F= \"/\\\"MaxCapacity\\\"/{gsub(/[^0-9]/,\\\"\\\",\\$2);print \\$2}\"); designcap=$(echo \"$ioreg\" | /usr/bin/awk -F= \"/\\\"DesignCapacity\\\"/{gsub(/[^0-9]/,\\\"\\\",\\$2);print \\$2}\"); curcap=$(echo \"$ioreg\" | /usr/bin/awk -F= \"/\\\"CurrentCapacity\\\"/{gsub(/[^0-9]/,\\\"\\\",\\$2);print \\$2}\"); temp=$(echo \"$ioreg\" | /usr/bin/awk -F= \"/\\\"Temperature\\\"/{gsub(/[^0-9]/,\\\"\\\",\\$2);print \\$2}\"); volt=$(echo \"$ioreg\" | /usr/bin/awk -F= \"/\\\"Voltage\\\"/{gsub(/[^0-9]/,\\\"\\\",\\$2);print \\$2}\"); /usr/bin/printf \"{\\\"charge_percent\\\":%s,\\\"power_source\\\":\\\"%s\\\",\\\"charging_state\\\":\\\"%s\\\",\\\"cycle_count\\\":%s,\\\"max_capacity\\\":%s,\\\"design_capacity\\\":%s,\\\"current_capacity\\\":%s,\\\"temperature\\\":%s,\\\"voltage\\\":%s}\\n\" \"${pct:-0}\" \"$src\" \"$state\" \"${cycle:-0}\" \"${maxcap:-0}\" \"${designcap:-0}\" \"${curcap:-0}\" \"${temp:-0}\" \"${volt:-0}\"'"
+    interval: 60
+    metadata:
+      - name: datatype
+        value: "'macos-power-battery'"
