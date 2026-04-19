@@ -9,7 +9,7 @@ conf:
           - name: index
             value: "'os'"
           - name: sourcetype
-            value: "(datatype||'').startsWith('macos-power-') ? (datatype||'').replace('macos-power-', 'macos:power:') : (datatype||'').replace('macos-system-', 'macos:system:')"
+            value: "datatype ? datatype.replace('macos-power-', 'macos:power:').replace('macos-system-', 'macos:system:') : ''"
           - name: host
             value: "C.os.hostname()"
     - id: eval
@@ -58,6 +58,6 @@ conf:
       conf:
         add:
           - name: anomaly
-            value: "(datatype === 'macos-system-memory' && memory_free_pct < 10) || (datatype === 'macos-system-windowserver' && ping_timeout_events > 0) || (datatype === 'macos-system-jetsam' && !no_recent_jetsam) || (datatype === 'macos-power-battery' && battery_health_percent !== undefined && battery_health_percent < 80) || (datatype === 'macos-power-metrics' && thermal_pressure !== undefined && thermal_pressure !== 'Nominal') ? true : undefined"
+            value: "(datatype === 'macos-system-memory' && memory_free_pct < 10) || (datatype === 'macos-system-windowserver' && ping_timeout_events > 0) || (datatype === 'macos-system-jetsam' && !no_recent_jetsam) || (datatype === 'macos-power-battery' && battery_health_percent !== undefined && battery_health_percent < 80) || (datatype === 'macos-power-metrics' && thermal?.thermal_pressure !== undefined && thermal.thermal_pressure !== 'Nominal') ? true : undefined"
           - name: anomaly_reason
-            value: "(datatype === 'macos-system-memory' && memory_free_pct < 10) ? 'memory_pressure_critical' : (datatype === 'macos-system-windowserver' && ping_timeout_events > 0) ? 'windowserver_ping_timeout' : (datatype === 'macos-system-jetsam' && !no_recent_jetsam) ? 'jetsam_event_detected' : (datatype === 'macos-power-battery' && battery_health_percent !== undefined && battery_health_percent < 80) ? 'battery_health_degraded' : (datatype === 'macos-power-metrics' && thermal_pressure !== undefined && thermal_pressure !== 'Nominal') ? 'thermal_pressure_elevated' : undefined"
+            value: "(datatype === 'macos-system-memory' && memory_free_pct < 10) ? 'memory_pressure_critical' : (datatype === 'macos-system-windowserver' && ping_timeout_events > 0) ? 'windowserver_ping_timeout' : (datatype === 'macos-system-jetsam' && !no_recent_jetsam) ? 'jetsam_event_detected' : (datatype === 'macos-power-battery' && battery_health_percent !== undefined && battery_health_percent < 80) ? 'battery_health_degraded' : (datatype === 'macos-power-metrics' && thermal?.thermal_pressure !== undefined && thermal.thermal_pressure !== 'Nominal') ? 'thermal_pressure_elevated' : undefined"
