@@ -237,17 +237,11 @@ inputs:
 
 ## Release Notes
 
-### v1.1.0 (2026-04-18)
+### v0.1.0 (2026-04-18)
 
-- Merged `cc-edge-macos-power` into this pack (both predecessor repos archived)
-- Renamed from `cc-edge-macos-system` to `cc-edge-the-mac-pack-io`
-- Added `macos-power-metrics` input: per-process energy impact, CPU/GPU/ANE power, thermal pressure (300s, root required)
-- Added `macos-power-battery` input: charge %, power source, cycle count, capacity, health % (60s)
-- Extended pipeline: battery health calculation, top-10 energy processes, thermal pressure anomaly, battery health anomaly
-- Sourcetype namespaces: `macos:system:*` (unchanged) and `macos:power:*` (new)
-
-### v1.0.0 (2026-03-27)
-
-- Initial release as `cc-edge-macos-system`
-- Seven Exec sources: WindowServer health (60s), memory pressure (60s), Jetsam events (5min), process stats (60s), disk I/O (60s), VM stats (60s), thermal status (60s)
-- Anomaly detection for memory pressure, WindowServer ping timeouts, and Jetsam events
+- **Initial release** of `cc-edge-the-mac-pack-io` — consolidates `cc-edge-macos-system` and `cc-edge-macos-power` (both predecessor repos archived)
+- **Nine Exec inputs**:
+  - System monitoring: WindowServer health (60s), memory pressure (60s), Jetsam events (5min), process stats (60s), disk I/O (60s), VM stats (60s), thermal status (60s)
+  - Power monitoring: per-process energy metrics + thermal (300s), battery health (60s)
+- **Anomaly detection** for: memory pressure, WindowServer timeouts, Jetsam events, battery health degradation, thermal pressure elevation
+- **Sourcetype namespaces**: `macos:system:*` and `macos:power:*`
