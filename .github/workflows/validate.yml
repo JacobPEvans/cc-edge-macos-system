@@ -14,7 +14,8 @@ on:
       - ".github/workflows/validate.yml"
   workflow_dispatch:
 
-permissions: {}
+permissions:
+  contents: read
 
 jobs:
   validate:
