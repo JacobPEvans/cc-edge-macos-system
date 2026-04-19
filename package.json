@@ -1,6 +1,6 @@
 {
   "name": "cc-edge-the-mac-pack-io",
-  "version": "1.1.0",
+  "version": "0.1.0",
   "minLogStreamVersion": "4.16.0",
   "author": "VisiCore Tech - CriblPacks@VisiCoreTech.com",
   "description": "Cribl Edge Pack for comprehensive macOS system monitoring: memory pressure, WindowServer health, Jetsam events, process stats, disk I/O, VM stats, thermal status, per-process power/energy metrics, and battery health — with anomaly detection.",
