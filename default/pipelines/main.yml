@@ -18,14 +18,14 @@ conf:
           - name: sourcetype
             value: "datatype === 'macos-power-metrics' ? 'macos:perf:powermetrics' : (datatype === 'macos-perf-snapshot' ? 'macos:perf:snapshot' : (datatype ? datatype.replace('macos-power-', 'macos:power:').replace('macos-system-', 'macos:system:') : ''))"
           - name: host
-            value: "C.os.hostname()"
+            value: "host || C.os.hostname()"
     - id: eval
       filter: "datatype === 'macos-perf-snapshot' && ts"
       disabled: false
       conf:
         add:
           - name: _time
-            value: "(new Date(ts)).getTime() / 1000"
+            value: "C.Time.parse(ts)"
     - id: eval
       filter: "datatype === 'macos-system-memory'"
       disabled: false

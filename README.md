@@ -239,7 +239,7 @@ inputs:
 | memoryStatus | object | System memory status including page counts and compressor stats |
 | processes | array | List of processes with memory details and states |
 
-### Power Metrics Events (`macos:power:metrics`)
+### Power Metrics Events (`macos:perf:powermetrics`)
 
 | Field | Type | Description |
 |-------|------|-------------|
