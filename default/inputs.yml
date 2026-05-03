@@ -106,3 +106,18 @@ inputs:
     metadata:
       - name: datatype
         value: "'macos-power-battery'"
+
+  mac-perf-snapshots:
+    type: file
+    disabled: false
+    sendToRoutes: true
+    pqEnabled: false
+    streamtags: []
+    path: "$MAC_PERF_SNAPSHOTS_DIR"
+    filenames:
+      - "*.ndjson"
+    tailOnly: false
+    interval: 30
+    metadata:
+      - name: datatype
+        value: "'macos-perf-snapshot'"

@@ -1,17 +1,31 @@
 id: main
 conf:
   functions:
+    - id: parser
+      filter: "datatype === 'macos-perf-snapshot'"
+      disabled: false
+      conf:
+        mode: extract
+        type: json
+        srcField: _raw
     - id: eval
       filter: "true"
       disabled: false
       conf:
         add:
           - name: index
-            value: "'os'"
+            value: "(datatype === 'macos-power-metrics' || datatype === 'macos-perf-snapshot') ? 'mac_perf' : 'os'"
           - name: sourcetype
-            value: "datatype ? datatype.replace('macos-power-', 'macos:power:').replace('macos-system-', 'macos:system:') : ''"
+            value: "datatype === 'macos-power-metrics' ? 'macos:perf:powermetrics' : (datatype === 'macos-perf-snapshot' ? 'macos:perf:snapshot' : (datatype ? datatype.replace('macos-power-', 'macos:power:').replace('macos-system-', 'macos:system:') : ''))"
           - name: host
-            value: "C.os.hostname()"
+            value: "host || C.os.hostname()"
+    - id: eval
+      filter: "datatype === 'macos-perf-snapshot' && ts"
+      disabled: false
+      conf:
+        add:
+          - name: _time
+            value: "C.Time.parse(ts)"
     - id: eval
       filter: "datatype === 'macos-system-memory'"
       disabled: false

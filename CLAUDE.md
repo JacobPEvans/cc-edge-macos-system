@@ -1,6 +1,14 @@
 # cc-edge-the-mac-pack-io
 
-Cribl Edge pack for comprehensive macOS system and power monitoring.
+Cribl Edge pack for comprehensive macOS system, power, and performance monitoring.
+
+The pack targets a **native macOS Cribl Edge install** (Nix-managed). Exec
+inputs that invoke macOS-only binaries (`powermetrics`, `pmset`, `ioreg`,
+`memory_pressure`) require host access and will not work from a Linux
+container. The file input (`mac-perf-snapshots`) reads from a Mac
+filesystem path and likewise requires the native install. An OrbStack-
+deployed Cribl Edge — used elsewhere for cluster monitoring — is unrelated
+to and not used by this pack.
 
 ## Version Policy
 
@@ -19,6 +27,7 @@ This pack uses **semantic versioning**.
 3. Update the `## Release Notes` section in `README.md` with the new version entry
 4. Merge PR to main
 5. Create GitHub release with the `.crbl` artifact built locally:
+
    ```sh
    tar -czf cc-edge-the-mac-pack-io-vX.Y.Z.crbl data default package.json README.md
    cp cc-edge-the-mac-pack-io-vX.Y.Z.crbl cc-edge-the-mac-pack-io.crbl

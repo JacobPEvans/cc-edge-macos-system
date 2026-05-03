@@ -92,3 +92,13 @@ routes:
     filter: __inputId=='exec:cc-edge-the-mac-pack-io.macos-power-battery'
     clones: []
     output: default
+  - id: mac-perf-snapshots
+    name: macOS Perf Snapshots (NDJSON File)
+    final: true
+    disabled: false
+    pipeline: main
+    description: "macOS perf snapshots tailed from NDJSON files emitted by collect-snapshot.py"
+    enableOutputExpression: false
+    filter: __inputId=='file:cc-edge-the-mac-pack-io.mac-perf-snapshots'
+    clones: []
+    output: default
