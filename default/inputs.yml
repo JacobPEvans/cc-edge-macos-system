@@ -1,76 +1,41 @@
 inputs:
-  macos-memory-pressure:
-    type: exec
+  # Native 4.18 Source: collects the macOS Unified Logging Subsystem broadly.
+  # Per-use-case filtering (WindowServer ping, Jetsam, security events, etc.)
+  # moves to Stream-side pipelines/routes — Edge captures, Stream filters.
+  # Replaces the v0.2 exec sources: macos-windowserver-health, macos-jetsam-events.
+  in_apple_unified_logs:
+    type: apple_unified_logs
     disabled: false
     sendToRoutes: true
     pqEnabled: false
     streamtags: []
-    command: "memory_pressure"
-    interval: 60
+    # NSPredicate. BEGINSWITH "com.apple" captures every Apple system subsystem
+    # (kernel, WindowServer, security, network, power, Spotlight, Time Machine,
+    # TCC, sandbox, etc.). Use TRUEPREDICATE if you also want 3rd-party app logs.
+    predicate: 'subsystem BEGINSWITH "com.apple"'
+    # Read only new entries on (re)start; switch to "allEvents" for a full backfill.
+    readMode: lastEntry
     metadata:
       - name: datatype
-        value: "'macos-system-memory'"
+        value: "'macos-unified-log'"
 
-  macos-windowserver-health:
-    type: exec
+  # Native 4.18 Source: collects host CPU/memory/network/disk + process metrics.
+  # Per-process / per-interface filtering moves to Stream.
+  # Replaces the v0.2 exec sources: macos-memory-pressure, macos-vm-stat,
+  # macos-disk-io, macos-process-top.
+  in_system_metrics:
+    type: system_metrics
     disabled: false
     sendToRoutes: true
     pqEnabled: false
     streamtags: []
-    command: "/usr/bin/log show --last 65s --predicate 'process == \"WindowServer\" AND eventMessage CONTAINS \"ping\"' --style json"
-    interval: 60
+    pollingInterval: 60
     metadata:
       - name: datatype
-        value: "'macos-system-windowserver'"
+        value: "'macos-system-metrics'"
 
-  macos-jetsam-events:
-    type: exec
-    disabled: false
-    sendToRoutes: true
-    pqEnabled: false
-    streamtags: []
-    command: "/bin/bash -c 'f=$(ls -t /Library/Logs/DiagnosticReports/JetsamEvent-*.ips 2>/dev/null | head -1); if [ -n \"$f\" ]; then ts=$(stat -f %m \"$f\"); now=$(date +%s); age=$((now - ts)); if [ $age -le 300 ]; then tail -n +2 \"$f\"; else echo \"{\\\"no_recent_jetsam\\\":true}\"; fi; else echo \"{\\\"no_recent_jetsam\\\":true}\"; fi'"
-    interval: 300
-    metadata:
-      - name: datatype
-        value: "'macos-system-jetsam'"
-
-  macos-process-top:
-    type: exec
-    disabled: false
-    sendToRoutes: true
-    pqEnabled: false
-    streamtags: []
-    command: "top -l 1 -n 20 -stats pid,command,cpu,mem,rprvt,purg,vsize,threads"
-    interval: 60
-    metadata:
-      - name: datatype
-        value: "'macos-system-process'"
-
-  macos-disk-io:
-    type: exec
-    disabled: false
-    sendToRoutes: true
-    pqEnabled: false
-    streamtags: []
-    command: "iostat -d -c 2 -w 1"
-    interval: 60
-    metadata:
-      - name: datatype
-        value: "'macos-system-diskio'"
-
-  macos-vm-stat:
-    type: exec
-    disabled: false
-    sendToRoutes: true
-    pqEnabled: false
-    streamtags: []
-    command: "vm_stat"
-    interval: 60
-    metadata:
-      - name: datatype
-        value: "'macos-system-vmstat'"
-
+  # Exec source — no native 4.18 equivalent (pmset surfaces system-wide thermal
+  # pressure that the System Metrics Source doesn't yet report on macOS).
   macos-thermal:
     type: exec
     disabled: false
@@ -83,6 +48,8 @@ inputs:
       - name: datatype
         value: "'macos-system-thermal'"
 
+  # Exec source — no native 4.18 equivalent.
+  # powermetrics is the only path to per-process energy / CPU/GPU/ANE power.
   macos-power-metrics:
     type: exec
     disabled: false
@@ -95,6 +62,8 @@ inputs:
       - name: datatype
         value: "'macos-power-metrics'"
 
+  # Exec source — no native 4.18 equivalent.
+  # Battery cycle count, max capacity, voltage etc. only come from ioreg/pmset.
   macos-power-battery:
     type: exec
     disabled: false
@@ -107,6 +76,8 @@ inputs:
       - name: datatype
         value: "'macos-power-battery'"
 
+  # File source — collect-snapshot.py drops NDJSON perf snapshots here.
+  # Separate data product from the native Sources; kept as-is.
   mac-perf-snapshots:
     type: file
     disabled: false

@@ -14,9 +14,9 @@ conf:
       conf:
         add:
           - name: index
-            value: "(datatype === 'macos-power-metrics' || datatype === 'macos-perf-snapshot') ? 'mac_perf' : 'os'"
+            value: "(datatype === 'macos-power-metrics' || datatype === 'macos-perf-snapshot' || datatype === 'macos-system-metrics') ? 'mac_perf' : 'os'"
           - name: sourcetype
-            value: "datatype === 'macos-power-metrics' ? 'macos:perf:powermetrics' : (datatype === 'macos-perf-snapshot' ? 'macos:perf:snapshot' : (datatype ? datatype.replace('macos-power-', 'macos:power:').replace('macos-system-', 'macos:system:') : ''))"
+            value: "datatype === 'macos-power-metrics' ? 'macos:perf:powermetrics' : (datatype === 'macos-perf-snapshot' ? 'macos:perf:snapshot' : (datatype === 'macos-unified-log' ? 'macos:unified_log' : (datatype === 'macos-system-metrics' ? 'macos:system:metrics' : (datatype ? datatype.replace('macos-power-', 'macos:power:').replace('macos-system-', 'macos:system:') : ''))))"
           - name: host
             value: "host || C.os.hostname()"
     - id: eval
@@ -26,32 +26,6 @@ conf:
         add:
           - name: _time
             value: "C.Time.parse(ts)"
-    - id: eval
-      filter: "datatype === 'macos-system-memory'"
-      disabled: false
-      conf:
-        add:
-          - name: pages_free
-            value: "Number((_raw.match(/Pages free:\\s+(\\d+)/)||[])[1]) || 0"
-          - name: pages_active
-            value: "Number((_raw.match(/Pages active:\\s+(\\d+)/)||[])[1]) || 0"
-          - name: pages_inactive
-            value: "Number((_raw.match(/Pages inactive:\\s+(\\d+)/)||[])[1]) || 0"
-          - name: pages_wired
-            value: "Number((_raw.match(/Pages wired down:\\s+(\\d+)/)||[])[1]) || 0"
-          - name: pages_compressed
-            value: "Number((_raw.match(/Pages used by compressor:\\s+(\\d+)/)||[])[1]) || 0"
-          - name: memory_free_pct
-            value: "Number((_raw.match(/System-wide memory free percentage:\\s+(\\d+)%/)||[])[1]) || 0"
-    - id: eval
-      filter: "datatype === 'macos-system-windowserver'"
-      disabled: false
-      conf:
-        add:
-          - name: ping_timeout_events
-            value: "Array.isArray(__e) ? __e.filter(e => e.eventMessage && e.eventMessage.includes('ping')).length : (typeof _raw === 'string' && _raw.includes('ping') ? (_raw.match(/pid \\d+/g)||[]).length : 0)"
-          - name: ping_timeout_pids
-            value: "Array.isArray(__e) ? __e.map(e => (e.eventMessage.match(/pid (\\d+)/)||[])[1]).filter(Boolean) : (typeof _raw === 'string' ? (_raw.match(/pid (\\d+)/g)||[]).map(s => s.replace('pid ','')) : [])"
     - id: eval
       filter: "datatype === 'macos-power-battery'"
       disabled: false
@@ -72,6 +46,6 @@ conf:
       conf:
         add:
           - name: anomaly
-            value: "(datatype === 'macos-system-memory' && memory_free_pct < 10) || (datatype === 'macos-system-windowserver' && ping_timeout_events > 0) || (datatype === 'macos-system-jetsam' && !no_recent_jetsam) || (datatype === 'macos-power-battery' && battery_health_percent !== undefined && battery_health_percent < 80) || (datatype === 'macos-power-metrics' && thermal?.thermal_pressure !== undefined && thermal.thermal_pressure !== 'Nominal') ? true : undefined"
+            value: "(datatype === 'macos-power-battery' && battery_health_percent !== undefined && battery_health_percent < 80) || (datatype === 'macos-power-metrics' && thermal?.thermal_pressure !== undefined && thermal.thermal_pressure !== 'Nominal') ? true : undefined"
           - name: anomaly_reason
-            value: "(datatype === 'macos-system-memory' && memory_free_pct < 10) ? 'memory_pressure_critical' : (datatype === 'macos-system-windowserver' && ping_timeout_events > 0) ? 'windowserver_ping_timeout' : (datatype === 'macos-system-jetsam' && !no_recent_jetsam) ? 'jetsam_event_detected' : (datatype === 'macos-power-battery' && battery_health_percent !== undefined && battery_health_percent < 80) ? 'battery_health_degraded' : (datatype === 'macos-power-metrics' && thermal?.thermal_pressure !== undefined && thermal.thermal_pressure !== 'Nominal') ? 'thermal_pressure_elevated' : undefined"
+            value: "(datatype === 'macos-power-battery' && battery_health_percent !== undefined && battery_health_percent < 80) ? 'battery_health_degraded' : (datatype === 'macos-power-metrics' && thermal?.thermal_pressure !== undefined && thermal.thermal_pressure !== 'Nominal') ? 'thermal_pressure_elevated' : undefined"

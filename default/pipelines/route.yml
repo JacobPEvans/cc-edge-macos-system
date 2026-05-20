@@ -2,64 +2,24 @@ id: default
 groups: {}
 comments: []
 routes:
-  - id: windowserver-health
-    name: WindowServer Health (Exec Source)
+  - id: apple-unified-logs
+    name: Apple Unified Logs (Native 4.18 Source)
     final: true
     disabled: false
     pipeline: main
-    description: "macOS WindowServer ping timeout events (UI freeze detection)"
+    description: "macOS Apple Unified Logs — broad capture (subsystem BEGINSWITH com.apple); Stream filters per use case"
     enableOutputExpression: false
-    filter: __inputId=='exec:cc-edge-the-mac-pack-io.macos-windowserver-health'
+    filter: __inputId=='apple_unified_logs:cc-edge-the-mac-pack-io.in_apple_unified_logs'
     clones: []
     output: default
-  - id: memory-pressure
-    name: Memory Pressure (Exec Source)
+  - id: system-metrics
+    name: System Metrics (Native 4.18 Source)
     final: true
     disabled: false
     pipeline: main
-    description: "macOS memory pressure stats (pages, swap, compressor, free percentage)"
+    description: "macOS System Metrics — CPU/memory/disk/network/process; Stream filters per use case"
     enableOutputExpression: false
-    filter: __inputId=='exec:cc-edge-the-mac-pack-io.macos-memory-pressure'
-    clones: []
-    output: default
-  - id: jetsam-events
-    name: Jetsam Events (Exec Source)
-    final: true
-    disabled: false
-    pipeline: main
-    description: "macOS Jetsam memory kill events from DiagnosticReports"
-    enableOutputExpression: false
-    filter: __inputId=='exec:cc-edge-the-mac-pack-io.macos-jetsam-events'
-    clones: []
-    output: default
-  - id: process-top
-    name: Process Stats (Exec Source)
-    final: true
-    disabled: false
-    pipeline: main
-    description: "macOS top process statistics (CPU, memory, threads)"
-    enableOutputExpression: false
-    filter: __inputId=='exec:cc-edge-the-mac-pack-io.macos-process-top'
-    clones: []
-    output: default
-  - id: disk-io
-    name: Disk I/O (Exec Source)
-    final: true
-    disabled: false
-    pipeline: main
-    description: "macOS disk I/O statistics (throughput, transactions, bandwidth)"
-    enableOutputExpression: false
-    filter: __inputId=='exec:cc-edge-the-mac-pack-io.macos-disk-io'
-    clones: []
-    output: default
-  - id: vm-stat
-    name: VM Statistics (Exec Source)
-    final: true
-    disabled: false
-    pipeline: main
-    description: "macOS virtual memory statistics (page faults, compressor, swap)"
-    enableOutputExpression: false
-    filter: __inputId=='exec:cc-edge-the-mac-pack-io.macos-vm-stat'
+    filter: __inputId=='system_metrics:cc-edge-the-mac-pack-io.in_system_metrics'
     clones: []
     output: default
   - id: thermal
@@ -67,7 +27,7 @@ routes:
     final: true
     disabled: false
     pipeline: main
-    description: "macOS thermal and performance warning levels"
+    description: "macOS thermal and performance warning levels (pmset -g therm)"
     enableOutputExpression: false
     filter: __inputId=='exec:cc-edge-the-mac-pack-io.macos-thermal'
     clones: []
