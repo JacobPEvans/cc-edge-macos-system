@@ -79,7 +79,7 @@ any other subsystem-of-interest) downstream.
 - **Index**: `mac_perf`
 - **Captures**: Per-process energy impact (top 10), CPU package power (mW), GPU power,
   ANE power, thermal pressure state, processor frequency
-- **Anomaly**: `thermal_pressure !== 'Nominal'` sets `anomaly=true`
+- **Anomaly**: `thermal.thermal_pressure !== 'Nominal'` sets `anomaly=true`
 - **Why exec**: No native 4.18 Source exposes per-process energy / ANE power.
 - **Requires**: Root privileges
 
@@ -238,7 +238,7 @@ inputs:
 ### Native Source Events
 
 The native `apple_unified_logs` and `system_metrics` Sources emit Cribl-defined event
-shapes — see Cribl's [MacOS System Metrics Details](https://docs.cribl.io/edge/system-metrics-macos-output)
+shapes — see Cribl's [macOS System Metrics Details](https://docs.cribl.io/edge/system-metrics-macos-output)
 and [Apple Unified Logs Source](https://docs.cribl.io/edge/sources-apple-unified-logs)
 reference docs for the full field listings. Edge passes them through unchanged; Stream
 pipelines do downstream extraction.
