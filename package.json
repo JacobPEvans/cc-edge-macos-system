@@ -1,12 +1,12 @@
 {
   "name": "cc-edge-the-mac-pack-io",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "minLogStreamVersion": "4.18.0",
   "author": "VisiCore Tech - CriblPacks@VisiCoreTech.com",
   "description": "Cribl Edge Pack for comprehensive macOS system, power, and performance telemetry: native Apple Unified Logs and System Metrics sources (4.18+), plus exec-based powermetrics, battery health, thermal, and perf snapshots — with anomaly detection.",
   "displayName": "The Mac Pack — macOS System, Power & Performance Monitoring for Edge",
   "tags": {
-    "streamtags": ["vct", "macos", "system", "power", "battery", "perf", "monitoring"],
+    "streamtags": ["vct", "macos", "system", "power", "battery", "perf", "network", "monitoring"],
     "dataType": ["metrics", "logs"]
   },
   "exports": []

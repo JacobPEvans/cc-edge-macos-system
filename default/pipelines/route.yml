@@ -62,3 +62,13 @@ routes:
     filter: __inputId=='file:cc-edge-the-mac-pack-io.mac-perf-snapshots'
     clones: []
     output: default
+  - id: wan-health
+    name: WAN Health (Exec Source)
+    final: true
+    disabled: false
+    pipeline: main
+    description: "macOS WAN reachability — ping loss + latency to gateway and public resolvers"
+    enableOutputExpression: false
+    filter: __inputId=='exec:cc-edge-the-mac-pack-io.macos-wan-health'
+    clones: []
+    output: default

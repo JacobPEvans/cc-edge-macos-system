@@ -112,6 +112,19 @@ any other subsystem-of-interest) downstream.
   not Cribl ingestion time
 - **Requires**: Read access to the snapshot directory; no special privileges
 
+### WAN Health (`macos-wan-health`) — Exec Source
+
+- **Interval**: 60 seconds
+- **Command**: Bash running `ping` to the default gateway and public resolvers
+  (`1.1.1.1`, `8.8.8.8`) — full command in [`default/inputs.yml`](default/inputs.yml)
+- **Sourcetype**: `macos:network:wan`
+- **Index**: `${INDEX}` (default `os`)
+- **Captures**: Per-target packet loss % and round-trip latency (min/avg/max/stddev ms)
+  for the gateway (LAN baseline) and each public resolver, as a `probes[]` array
+- **Why exec**: No native Source exposes end-to-end ping reachability (loss/latency)
+  to external targets
+- **Requires**: No special privileges
+
 ## Data Flow
 
 ```text
@@ -132,7 +145,7 @@ collect-snapshot.py NDJSON files           ┘              Sources
                        ▼
                  Splunk:
                    index=os         sourcetype=macos:unified_log | macos:system:thermal
-                                    | macos:power:battery
+                                    | macos:power:battery | macos:network:wan
                    index=mac_perf   sourcetype=macos:system:metrics | macos:perf:powermetrics
                                     | macos:perf:snapshot
 ```
@@ -169,6 +182,7 @@ Use these fields in Splunk to alert on what Edge does flag:
 | `macos:power:battery` | `os` | Exec |
 | `macos:perf:powermetrics` | `mac_perf` | Exec |
 | `macos:perf:snapshot` | `mac_perf` | File (NDJSON) |
+| `macos:network:wan` | `${INDEX}` (default `os`) | Exec |
 
 The file-based snapshot input requires the `MAC_PERF_SNAPSHOTS_DIR` environment variable
 to be set on the Cribl Edge worker, pointing at the directory where the snapshot
@@ -235,6 +249,16 @@ inputs:
 | temperature | number | Battery temperature (hundredths of °C) |
 | voltage | number | Battery voltage (mV) |
 
+### WAN Health Events (`macos:network:wan`)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| probes | array | Per-target results `{name, target, loss_pct, min_ms, avg_ms, max_ms, stddev_ms}` |
+| probes[].name | string | `gateway`, `cloudflare`, or `google` |
+| probes[].target | string | Probed IP (gateway resolved from the host default route) |
+| probes[].loss_pct | number | Packet loss percentage for the probe |
+| probes[].avg_ms | number | Mean round-trip latency (ms); `null` on 100% loss |
+
 ### Native Source Events
 
 The native `apple_unified_logs` and `system_metrics` Sources emit Cribl-defined event
@@ -254,6 +278,13 @@ pipelines do downstream extraction.
 | anomaly_reason | string | Anomaly type identifier |
 
 ## Release Notes
+
+### v0.4.0 (2026-06-06)
+
+- **New Exec input** `macos-wan-health` — WAN reachability: `ping` packet loss and
+  round-trip latency (min/avg/max/stddev) to the default gateway and public resolvers
+  (`1.1.1.1`, `8.8.8.8`), emitted as a `probes[]` array. Routes to sourcetype
+  `macos:network:wan`, index `${INDEX}` (default `os`), 60s interval.
 
 ### v0.3.0 (2026-05-20)
 

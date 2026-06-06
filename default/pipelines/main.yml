@@ -20,6 +20,15 @@ conf:
           - name: host
             value: "host || C.os.hostname()"
     - id: eval
+      filter: "datatype === 'macos-network-wan'"
+      disabled: false
+      conf:
+        add:
+          - name: index
+            value: "C.env['INDEX'] || 'os'"
+          - name: sourcetype
+            value: "'macos:network:wan'"
+    - id: eval
       filter: "datatype === 'macos-perf-snapshot' && ts"
       disabled: false
       conf:

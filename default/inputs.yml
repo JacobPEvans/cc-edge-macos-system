@@ -92,3 +92,17 @@ inputs:
     metadata:
       - name: datatype
         value: "'macos-perf-snapshot'"
+
+  # Exec source — WAN reachability: ping packet loss + latency (min/avg/max/
+  # stddev ms) to the default gateway and public resolvers (1.1.1.1, 8.8.8.8).
+  macos-wan-health:
+    type: exec
+    disabled: false
+    sendToRoutes: true
+    pqEnabled: false
+    streamtags: []
+    command: '/bin/bash -c ''gw=$(/sbin/route -n get default 2>/dev/null | sed -n "s/.*gateway: //p"); gw=${gw:-0.0.0.0}; out=""; for pair in "gateway $gw" "cloudflare 1.1.1.1" "google 8.8.8.8"; do set -- $pair; n=$1; h=$2; o=$(/sbin/ping -c 5 -i 0.2 -t 3 "$h" 2>/dev/null); l=$(echo "$o" | sed -n "s/.* \([0-9.]*\)% packet loss/\1/p"); st=$(echo "$o" | sed -n "s#.* = \([0-9./]*\) ms#\1#p"); mn=${st%%/*}; rest=${st#*/}; av=${rest%%/*}; rest=${rest#*/}; mx=${rest%%/*}; sd=${rest##*/}; out="$out,{\"name\":\"$n\",\"target\":\"$h\",\"loss_pct\":${l:-100},\"min_ms\":${mn:-null},\"avg_ms\":${av:-null},\"max_ms\":${mx:-null},\"stddev_ms\":${sd:-null}}"; done; printf "{\"probes\":[%s]}\n" "${out#,}"'''
+    interval: 60
+    metadata:
+      - name: datatype
+        value: "'macos-network-wan'"
