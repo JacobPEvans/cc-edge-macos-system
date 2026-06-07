@@ -19,15 +19,53 @@ conf:
             value: "datatype === 'macos-power-metrics' ? 'macos:perf:powermetrics' : (datatype === 'macos-perf-snapshot' ? 'macos:perf:snapshot' : (datatype === 'macos-unified-log' ? 'macos:unified_log' : (datatype ? datatype.replace('macos-power-', 'macos:power:').replace('macos-system-', 'macos:system:') : '')))"
           - name: host
             value: "host || C.os.hostname()"
+    # Network sourcetype/index for every macos-network-* datatype
+    # (wan | quality | wifi) -> macos:network:<suffix>, index os (env-overridable).
     - id: eval
-      filter: "datatype === 'macos-network-wan'"
+      filter: "typeof datatype === 'string' && datatype.startsWith('macos-network-')"
       disabled: false
       conf:
         add:
           - name: index
             value: "C.env['INDEX'] || 'os'"
           - name: sourcetype
-            value: "'macos:network:wan'"
+            value: "'macos:network:' + datatype.slice('macos-network-'.length)"
+    # WAN/LAN decomposition: gateway probe is the local hop, best external probe
+    # is the internet leg. Later fields reference earlier ones (Eval applies adds
+    # in order). Thresholds env-tunable: WAN_LAN_LAT_MS (15), WAN_INET_LAT_MS (50).
+    - id: eval
+      filter: "datatype === 'macos-network-wan'"
+      disabled: false
+      conf:
+        add:
+          - name: lan_avg_ms
+            value: "(probes || []).find(p => p.name === 'gateway')?.avg_ms"
+          - name: lan_loss_pct
+            value: "(probes || []).find(p => p.name === 'gateway')?.loss_pct"
+          - name: wan_avg_ms
+            value: "(probes || []).filter(p => p.name !== 'gateway' && typeof p.avg_ms === 'number').length ? Math.min(...(probes || []).filter(p => p.name !== 'gateway' && typeof p.avg_ms === 'number').map(p => p.avg_ms)) : undefined"
+          - name: wan_loss_pct
+            value: "(probes || []).filter(p => p.name !== 'gateway').length ? Math.min(...(probes || []).filter(p => p.name !== 'gateway').map(p => typeof p.loss_pct === 'number' ? p.loss_pct : 100)) : undefined"
+          - name: gateway_reachable
+            value: "typeof lan_loss_pct === 'number' ? lan_loss_pct < 100 : undefined"
+          - name: internet_reachable
+            value: "typeof wan_loss_pct === 'number' ? wan_loss_pct < 100 : undefined"
+          - name: internet_latency_ms
+            value: "(typeof wan_avg_ms === 'number' && typeof lan_avg_ms === 'number') ? Math.max(0, Math.round((wan_avg_ms - lan_avg_ms) * 10) / 10) : undefined"
+          - name: lan_latency_share_pct
+            value: "(typeof wan_avg_ms === 'number' && wan_avg_ms > 0 && typeof lan_avg_ms === 'number') ? Math.round(lan_avg_ms / wan_avg_ms * 100) : undefined"
+          - name: network_health
+            value: "internet_reachable === false ? 'internet_down' : (gateway_reachable === false ? 'gateway_down' : ((lan_loss_pct > 0 || (typeof lan_avg_ms === 'number' && lan_avg_ms > (+(C.env['WAN_LAN_LAT_MS'] || 15)))) ? 'lan_degraded' : ((wan_loss_pct > 0 || (typeof internet_latency_ms === 'number' && internet_latency_ms > (+(C.env['WAN_INET_LAT_MS'] || 50)))) ? 'wan_degraded' : 'ok')))"
+    # Flag degraded network as an anomaly, attributing LAN vs WAN via network_health.
+    - id: eval
+      filter: "datatype === 'macos-network-wan' && network_health && network_health !== 'ok'"
+      disabled: false
+      conf:
+        add:
+          - name: anomaly
+            value: "true"
+          - name: anomaly_reason
+            value: "network_health"
     - id: eval
       filter: "datatype === 'macos-perf-snapshot' && ts"
       disabled: false

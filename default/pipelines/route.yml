@@ -72,3 +72,23 @@ routes:
     filter: __inputId=='exec:cc-edge-the-mac-pack-io.macos-wan-health'
     clones: []
     output: default
+  - id: network-quality
+    name: Network Quality (Exec Source)
+    final: true
+    disabled: false
+    pipeline: main
+    description: "macOS internet quality — networkQuality responsiveness (RPM) + throughput"
+    enableOutputExpression: false
+    filter: __inputId=='exec:cc-edge-the-mac-pack-io.macos-network-quality'
+    clones: []
+    output: default
+  - id: network-wifi
+    name: Wi-Fi Link Quality (Exec Source)
+    final: true
+    disabled: false
+    pipeline: main
+    description: "macOS Wi-Fi link quality — RSSI/noise, tx rate, channel, PHY mode"
+    enableOutputExpression: false
+    filter: __inputId=='exec:cc-edge-the-mac-pack-io.macos-network-wifi'
+    clones: []
+    output: default

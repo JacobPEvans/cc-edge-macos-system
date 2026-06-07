@@ -106,3 +106,38 @@ inputs:
     metadata:
       - name: datatype
         value: "'macos-network-wan'"
+
+  # Exec source — Apple's networkQuality measures responsiveness under load
+  # (RPM / bufferbloat) plus down/up throughput — the canonical "true internet
+  # quality" signal that idle ping can't capture. WARNING: each run is a
+  # SATURATING speed test that moves significant bandwidth (potentially GBs on a
+  # fast link). The 30-min interval bounds that cost; raise `interval` or set
+  # `disabled: true` to dial it back. `-c` emits JSON to stdout (no script).
+  macos-network-quality:
+    type: exec
+    disabled: false
+    sendToRoutes: true
+    pqEnabled: false
+    streamtags: []
+    command: "/usr/bin/networkQuality -c"
+    interval: 1800
+    metadata:
+      - name: datatype
+        value: "'macos-network-quality'"
+
+  # Exec source — Wi-Fi link quality (RSSI/noise, tx rate, channel, PHY mode) so a
+  # high gateway latency can be attributed to weak Wi-Fi vs a router/ISP fault.
+  # `-json` emits JSON to stdout (no sudo, no script). Per the pack's
+  # Edge-captures / Stream-filters rule the raw nested JSON ships as-is; pull
+  # spairport_signal_noise etc. out downstream (paths documented in README).
+  macos-network-wifi:
+    type: exec
+    disabled: false
+    sendToRoutes: true
+    pqEnabled: false
+    streamtags: []
+    command: "/usr/sbin/system_profiler -json SPAirPortDataType"
+    interval: 60
+    metadata:
+      - name: datatype
+        value: "'macos-network-wifi'"
