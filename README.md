@@ -112,6 +112,22 @@ any other subsystem-of-interest) downstream.
   not Cribl ingestion time
 - **Requires**: Read access to the snapshot directory; no special privileges
 
+## Data Contract
+
+Events leave this pack tagged with a `datatype` metadata field. Unlike the other VCT AI packs — where Cribl Stream maps
+datatypes to Splunk sourcetypes/indexes — this is the one pack that assigns `index` and `sourcetype` **at the Edge**, in
+its pipelines; Stream passes them through unchanged. Knowledge objects for the sourcetypes ship in
+[VisiCore_TA_AI_Observability](https://github.com/JacobPEvans-personal/VisiCore_TA_AI_Observability) (v0.2.0+).
+
+| Input | Datatype | Splunk sourcetype | Index | TA support |
+|---|---|---|---|---|
+| `in_apple_unified_logs` | `macos-unified-log` | `macos:unified_log` | `os` | ✓ (TA 0.2.0+) |
+| `macos-thermal` | `macos-system-thermal` | `macos:system:thermal` | `os` | ✓ (TA 0.2.0+) |
+| `macos-power-battery` | `macos-power-battery` | `macos:power:battery` | `os` | ✓ (TA 0.2.0+) |
+| `in_system_metrics` | `macos-system-metrics` | `macos:system:metrics` | `mac_perf` | ✓ (TA 0.2.0+) |
+| `macos-power-metrics` | `macos-power-metrics` | `macos:perf:powermetrics` | `mac_perf` | ✓ |
+| `mac-perf-snapshots` | `macos-perf-snapshot` | `macos:perf:snapshot` | `mac_perf` | ✓ |
+
 ## Data Flow
 
 ```text
@@ -190,6 +206,14 @@ inputs:
     disabled: true               # disable if no external collector is running
 ```
 
+## Setup
+
+1. Install the pack on a native macOS Cribl Edge node running Cribl 4.18.0+ — see [Installation](#installation).
+2. Set the `MAC_PERF_SNAPSHOTS_DIR` environment variable on the Edge worker if using the `mac-perf-snapshots`
+   file input — see [Usage](#usage).
+3. Run Edge with root privileges if using `macos-power-metrics` (`powermetrics` requires root), or disable that input.
+4. Optionally tune predicates, polling intervals, and per-input enablement via local overrides — see [Usage](#usage).
+
 ## Installation
 
 1. Copy pack to Cribl Edge or install via API:
@@ -253,7 +277,23 @@ pipelines do downstream extraction.
 | anomaly | boolean | `true` when anomaly detected (exec sources only — see Anomaly Detection) |
 | anomaly_reason | string | Anomaly type identifier |
 
+## Troubleshooting
+
+- **No unified-log or system-metrics events** — confirm the Edge node runs Cribl 4.18.0+ natively on macOS; the
+  `apple_unified_logs` and `system_metrics` Source types do not exist on older versions or in Linux containers.
+- **No powermetrics events** — `macos-power-metrics` requires root; check the Edge process privileges or disable the input.
+- **No snapshot events** — verify `MAC_PERF_SNAPSHOTS_DIR` is set on the Edge worker and the external snapshot
+  collector is writing NDJSON files into that directory.
+- **Stale file tracking** — Edge tracks file state in its kvstore
+  (`/opt/cribl/state/kvstore/default/file_mac-perf-snapshots*/`); clear it to re-ingest snapshot files from the beginning.
+
 ## Release Notes
+
+### v0.3.1 (2026-06-10)
+
+- Docs-only release: add Data Contract section (this is the one VCT pack that assigns `index` and `sourcetype`
+  at the Edge), plus new Setup and Troubleshooting sections.
+- `package.json` version bump only — no input or pipeline changes.
 
 ### v0.3.0 (2026-05-20)
 
