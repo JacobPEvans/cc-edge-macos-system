@@ -2,8 +2,6 @@
 
 Cribl Edge Pack for comprehensive macOS system, power, and performance monitoring.
 
-> Supersedes `cc-edge-macos-system` and `cc-edge-macos-power` — both repos are archived.
-
 ## Overview
 
 Collects macOS telemetry on a Cribl Edge Node running natively on macOS. As of v0.3.0
@@ -105,9 +103,11 @@ any other subsystem-of-interest) downstream.
 - **Captures**: Aggregate host perf snapshot — load averages, memory totals, swap I/O,
   top CPU/RSS processes, zombie process tree, sleep assertions, 24h crash counts,
   listening ports, logged-in users, kernel_task CPU%
-- **Producer**: Standalone Python collector (e.g., `nix-mac-performance/monitoring/collect-snapshot.py`)
-  writing daily-rotated `<YYYY-MM-DD>.ndjson` files via a per-user LaunchAgent on a
-  5-minute cadence
+- **Producer contract**: Any external collector that writes daily-rotated
+  `<YYYY-MM-DD>.ndjson` files (one event per line, each carrying an ISO 8601 UTC `ts`
+  field) into `$MAC_PERF_SNAPSHOTS_DIR`. Typically driven by a per-user LaunchAgent on a
+  5-minute cadence. The pack does not ship the collector — it consumes whatever NDJSON
+  appears in that directory.
 - **Time extraction**: `_time` is set from the `ts` field in each event (ISO 8601 UTC),
   not Cribl ingestion time
 - **Requires**: Read access to the snapshot directory; no special privileges
@@ -145,7 +145,7 @@ timeouts, and Jetsam events moves to Stream — the broad Apple Unified Logs / S
 Metrics streams already carry the underlying data; Stream pipelines extract the signal.
 
 | Condition | anomaly_reason | Detected at |
-|-----------|----------------|-------------|
+| --- | --- | --- |
 | Battery health < 80% | `battery_health_degraded` | Edge (this pack) |
 | Thermal pressure not Nominal | `thermal_pressure_elevated` | Edge (this pack) |
 | Memory pressure critical | (Stream-side, future) | Stream |
@@ -171,9 +171,8 @@ Use these fields in Splunk to alert on what Edge does flag:
 | `macos:perf:snapshot` | `mac_perf` | File (NDJSON) |
 
 The file-based snapshot input requires the `MAC_PERF_SNAPSHOTS_DIR` environment variable
-to be set on the Cribl Edge worker, pointing at the directory where the snapshot
-collector writes its NDJSON files
-(e.g., `/Users/<you>/git/nix-mac-performance/main/monitoring/snapshots`).
+to be set on the Cribl Edge worker, pointing at the directory where an external snapshot
+collector writes its NDJSON files (e.g., `/Users/<you>/snapshots`).
 
 To customize, create local overrides in `/opt/cribl/local/cc-edge-the-mac-pack-io/`:
 
@@ -214,7 +213,7 @@ inputs:
 ### Power Metrics Events (`macos:perf:powermetrics`)
 
 | Field | Type | Description |
-|-------|------|-------------|
+| --- | --- | --- |
 | top_processes | array | Top 10 processes by energy impact `{name, pid, energy_impact}` |
 | thermal_pressure | string | Thermal pressure state (`Nominal`, `Moderate`, `Heavy`, `Trapping`) |
 | processor | object | CPU package power (mW), frequency per cluster |
@@ -224,7 +223,7 @@ inputs:
 ### Battery Events (`macos:power:battery`)
 
 | Field | Type | Description |
-|-------|------|-------------|
+| --- | --- | --- |
 | charge_percent | number | Current charge percentage |
 | power_source | string | `AC` or `Battery` |
 | charging_state | string | `charging`, `discharging`, `charged`, or `unknown` |
@@ -246,7 +245,7 @@ pipelines do downstream extraction.
 ### Common Fields (all sourcetypes)
 
 | Field | Type | Description |
-|-------|------|-------------|
+| --- | --- | --- |
 | index | string | `os` for unified-log + thermal + battery; `mac_perf` for system metrics + powermetrics + snapshots |
 | sourcetype | string | See namespace table above |
 | host | string | Hostname of the Edge node |
@@ -276,10 +275,9 @@ pipelines do downstream extraction.
 ### v0.2.0 (2026-04-29)
 
 - **New File input** `mac-perf-snapshots` — tails NDJSON files emitted by an external
-  snapshot collector (such as `nix-mac-performance/monitoring/collect-snapshot.py`).
-  Reads `*.ndjson` from `$MAC_PERF_SNAPSHOTS_DIR`, parses each JSON line, sets `_time`
-  from the event's `ts` field, routes to `index=mac_perf` with sourcetype
-  `macos:perf:snapshot`.
+  snapshot collector. Reads `*.ndjson` from `$MAC_PERF_SNAPSHOTS_DIR`, parses each JSON
+  line, sets `_time` from the event's `ts` field, routes to `index=mac_perf` with
+  sourcetype `macos:perf:snapshot`.
 - **Powermetrics retargeted** — the existing `macos-power-metrics` Exec input now writes
   to `index=mac_perf` with sourcetype `macos:perf:powermetrics`.
   **BREAKING** for any v0.1.0 dashboards or alerts that filtered
@@ -293,16 +291,17 @@ pipelines do downstream extraction.
   ```
 
 - **Prerequisites for v0.2.0:**
-  - Splunk index `mac_perf` exists (provisioned by ansible-splunk).
-  - Splunk add-on `VisiCore_TA_AI_Observability` includes `[macos:perf:snapshot]` and `[macos:perf:powermetrics]` props.
-  - For the file input to have data: a snapshot collector must be installed on the Mac
-    (e.g., `nix-mac-performance` PR #2 LaunchAgent).
+  - Splunk index `mac_perf` exists.
+  - The receiving Splunk add-on includes `[macos:perf:snapshot]` and
+    `[macos:perf:powermetrics]` props/sourcetypes.
+  - For the file input to have data: an external snapshot collector must be installed on
+    the Mac, writing NDJSON to `$MAC_PERF_SNAPSHOTS_DIR`.
   - Cribl Edge worker has `MAC_PERF_SNAPSHOTS_DIR` env var set.
 
 ### v0.1.0 (2026-04-18)
 
-- **Initial release** of `cc-edge-the-mac-pack-io` — consolidates `cc-edge-macos-system`
-  and `cc-edge-macos-power` (both predecessor repos archived).
+- **Initial release** of `cc-edge-the-mac-pack-io` — a single pack covering macOS system
+  and power telemetry.
 - **Nine Exec inputs**:
   - System monitoring: WindowServer health (60s), memory pressure (60s),
     Jetsam events (5min), process stats (60s), disk I/O (60s), VM stats (60s),
@@ -312,3 +311,7 @@ pipelines do downstream extraction.
 - **Anomaly detection** for: memory pressure, WindowServer timeouts, Jetsam events,
   battery health degradation, thermal pressure elevation.
 - **Sourcetype namespaces**: `macos:system:*` and `macos:power:*`.
+
+---
+
+> Part of a [larger ecosystem of ~40 repos](https://docs.jacobpevans.com) — see how it all fits together.
