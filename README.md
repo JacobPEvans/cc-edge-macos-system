@@ -312,3 +312,7 @@ pipelines do downstream extraction.
 - **Anomaly detection** for: memory pressure, WindowServer timeouts, Jetsam events,
   battery health degradation, thermal pressure elevation.
 - **Sourcetype namespaces**: `macos:system:*` and `macos:power:*`.
+
+---
+
+> Part of a [larger ecosystem of ~40 repos](https://docs.jacobpevans.com) — see how it all fits together.
