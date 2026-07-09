@@ -21,4 +21,4 @@ jobs:
   validate:
     uses: dryvist/.github/.github/workflows/_cribl-pack-validate.yml@main
     with:
-      pack-type: edge
+      pack_type: edge
