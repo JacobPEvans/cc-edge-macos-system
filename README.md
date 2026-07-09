@@ -105,9 +105,9 @@ any other subsystem-of-interest) downstream.
 - **Captures**: Aggregate host perf snapshot — load averages, memory totals, swap I/O,
   top CPU/RSS processes, zombie process tree, sleep assertions, 24h crash counts,
   listening ports, logged-in users, kernel_task CPU%
-- **Producer**: Standalone Python collector (e.g., `nix-mac-performance/monitoring/collect-snapshot.py`)
-  writing daily-rotated `<YYYY-MM-DD>.ndjson` files via a per-user LaunchAgent on a
-  5-minute cadence
+- **Producer**: An external snapshot collector (e.g., a standalone Python script run by
+  a per-user LaunchAgent on a 5-minute cadence) writing daily-rotated
+  `<YYYY-MM-DD>.ndjson` files
 - **Time extraction**: `_time` is set from the `ts` field in each event (ISO 8601 UTC),
   not Cribl ingestion time
 - **Requires**: Read access to the snapshot directory; no special privileges
@@ -172,8 +172,7 @@ Use these fields in Splunk to alert on what Edge does flag:
 
 The file-based snapshot input requires the `MAC_PERF_SNAPSHOTS_DIR` environment variable
 to be set on the Cribl Edge worker, pointing at the directory where the snapshot
-collector writes its NDJSON files
-(e.g., `/Users/<you>/git/nix-mac-performance/main/monitoring/snapshots`).
+collector writes its NDJSON files.
 
 To customize, create local overrides in `/opt/cribl/local/cc-edge-the-mac-pack-io/`:
 
@@ -255,6 +254,23 @@ pipelines do downstream extraction.
 
 ## Release Notes
 
+### v0.3.1 (2026-07-08)
+
+- **Pipeline file moved to Cribl's on-disk layout**: `default/pipelines/main.yml`
+  (flat file in API-response shape) → `default/pipelines/main/conf.yml` (pipeline
+  conf shape). The flat file was not loadable as pack pipeline config; routes
+  referencing `main` would not have applied the pack's field stamping. No logic
+  changes — functions are identical.
+- **`default/pack.yml` corrected** to a pack manifest (was a stray `id: default`
+  copied from route config).
+- **CI fixed**: the reusable validate workflow reference now uses the renamed
+  GitHub account owner (Actions `uses:` does not follow account-rename redirects;
+  every run since the rename failed at workflow-file resolution). Renovate preset
+  reference updated for the same reason.
+- **Docs**: removed references to a private external repo from this public README;
+  release commands in `CLAUDE.md` point at the current repo owner.
+- **`.gitignore`**: locally-built `*.crbl` release artifacts are now ignored.
+
 ### v0.3.0 (2026-05-20)
 
 - **Native 4.18 Sources adopted**:
@@ -276,8 +292,7 @@ pipelines do downstream extraction.
 ### v0.2.0 (2026-04-29)
 
 - **New File input** `mac-perf-snapshots` — tails NDJSON files emitted by an external
-  snapshot collector (such as `nix-mac-performance/monitoring/collect-snapshot.py`).
-  Reads `*.ndjson` from `$MAC_PERF_SNAPSHOTS_DIR`, parses each JSON line, sets `_time`
+  snapshot collector. Reads `*.ndjson` from `$MAC_PERF_SNAPSHOTS_DIR`, parses each JSON line, sets `_time`
   from the event's `ts` field, routes to `index=mac_perf` with sourcetype
   `macos:perf:snapshot`.
 - **Powermetrics retargeted** — the existing `macos-power-metrics` Exec input now writes
@@ -296,7 +311,7 @@ pipelines do downstream extraction.
   - Splunk index `mac_perf` exists (provisioned by ansible-splunk).
   - Splunk add-on `VisiCore_TA_AI_Observability` includes `[macos:perf:snapshot]` and `[macos:perf:powermetrics]` props.
   - For the file input to have data: a snapshot collector must be installed on the Mac
-    (e.g., `nix-mac-performance` PR #2 LaunchAgent).
+    (e.g., as a per-user LaunchAgent).
   - Cribl Edge worker has `MAC_PERF_SNAPSHOTS_DIR` env var set.
 
 ### v0.1.0 (2026-04-18)

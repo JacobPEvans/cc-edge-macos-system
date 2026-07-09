@@ -1,1 +1,3 @@
-id: default
+# Cribl pack manifest. Customary contents:
+#   - logo: data:image/png;base64,...   (small base64-encoded PNG, displayed in Cribl UI)
+logo: ''
