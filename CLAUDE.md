@@ -32,9 +32,9 @@ This pack uses **semantic versioning**.
    tar -czf cc-edge-the-mac-pack-io-vX.Y.Z.crbl data default package.json README.md
    cp cc-edge-the-mac-pack-io-vX.Y.Z.crbl cc-edge-the-mac-pack-io.crbl
    gh release create vX.Y.Z --draft \
-     --repo JacobPEvans/cc-edge-the-mac-pack-io \
+     --repo dryvist/cc-edge-the-mac-pack-io \
      cc-edge-the-mac-pack-io-vX.Y.Z.crbl cc-edge-the-mac-pack-io.crbl
-   gh release edit vX.Y.Z --repo JacobPEvans/cc-edge-the-mac-pack-io --draft=false
+   gh release edit vX.Y.Z --repo dryvist/cc-edge-the-mac-pack-io --draft=false
    ```
 
 ## File Operations

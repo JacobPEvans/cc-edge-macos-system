@@ -1,0 +1,57 @@
+output: default
+streamtags: []
+groups: {}
+asyncFuncTimeout: 1000
+description: >-
+  Stamps Splunk-canonical fields (index, sourcetype, host) on every event,
+  parses NDJSON perf snapshots, derives battery health, extracts top
+  processes by energy impact, and flags exec-source anomalies.
+functions:
+  - id: parser
+    filter: "datatype === 'macos-perf-snapshot'"
+    disabled: false
+    conf:
+      mode: extract
+      type: json
+      srcField: _raw
+  - id: eval
+    filter: "true"
+    disabled: false
+    conf:
+      add:
+        - name: index
+          value: "['macos-power-metrics', 'macos-perf-snapshot', 'macos-system-metrics'].includes(datatype) ? 'mac_perf' : 'os'"
+        - name: sourcetype
+          value: "datatype === 'macos-power-metrics' ? 'macos:perf:powermetrics' : (datatype === 'macos-perf-snapshot' ? 'macos:perf:snapshot' : (datatype === 'macos-unified-log' ? 'macos:unified_log' : (datatype ? datatype.replace('macos-power-', 'macos:power:').replace('macos-system-', 'macos:system:') : '')))"
+        - name: host
+          value: "host || C.os.hostname()"
+  - id: eval
+    filter: "datatype === 'macos-perf-snapshot' && ts"
+    disabled: false
+    conf:
+      add:
+        - name: _time
+          value: "C.Time.parse(ts)"
+  - id: eval
+    filter: "datatype === 'macos-power-battery'"
+    disabled: false
+    conf:
+      add:
+        - name: battery_health_percent
+          value: "design_capacity > 0 ? Math.round(max_capacity / design_capacity * 1000) / 10 : undefined"
+  - id: eval
+    filter: "datatype === 'macos-power-metrics'"
+    disabled: false
+    conf:
+      add:
+        - name: top_processes
+          value: "Array.isArray(tasks) ? tasks.slice().sort((a,b) => (b.energy_impact||0) - (a.energy_impact||0)).slice(0,10).map(t => ({name: t.name, pid: t.pid, energy_impact: t.energy_impact})) : undefined"
+  - id: eval
+    filter: "true"
+    disabled: false
+    conf:
+      add:
+        - name: anomaly
+          value: "(datatype === 'macos-power-battery' && battery_health_percent !== undefined && battery_health_percent < 80) || (datatype === 'macos-power-metrics' && thermal?.thermal_pressure !== undefined && thermal.thermal_pressure !== 'Nominal') ? true : undefined"
+        - name: anomaly_reason
+          value: "(datatype === 'macos-power-battery' && battery_health_percent !== undefined && battery_health_percent < 80) ? 'battery_health_degraded' : (datatype === 'macos-power-metrics' && thermal?.thermal_pressure !== undefined && thermal.thermal_pressure !== 'Nominal') ? 'thermal_pressure_elevated' : undefined"
