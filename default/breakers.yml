@@ -1,0 +1,40 @@
+MacOS Crash Reports:
+  lib: custom
+  description: >-
+    macOS .ips/.panic/.diag/.crash/.hang/.spin/.shutdownStall diagnostic reports —
+    one event per FILE, not per line. The stock newline-delimited breaker shattered
+    a single 2560-line WindowServer .ips into 2560 events, scattering the
+    ws_main_thread stack across rows unreadable in Splunk; only the first line (the
+    compact JSON header) ever carried a timestamp, so every sibling event kept
+    arrival time instead. eventBreakerRegex fires only on a report's opening line:
+    an object whose first key's value is a quoted timestamp string
+    (`{"timestamp":"..."` — allowing up to 119 other characters first, since key
+    order varies), `Date/Time:` (spin), or `Use spindump` (shutdownStall, binary
+    spindump format). A plain `{"` anchor is not enough: some .diag bodies (the
+    SFA-* family) are compact single-line JSON starting at column 0, so `{"` alone
+    matches both the header and the body and splits the file in two — one of them
+    always stamped at break time. Requiring the quoted `"timestamp":"` value
+    excludes those bodies structurally (their embedded timestamp, when present, is
+    a bare epoch float, not a quoted string) rather than by an enumerated key list,
+    which would fail by omission. Verified against every crash-report artifact on
+    this host (both /Library and $HOME DiagnosticReports, 179 files): exactly one
+    break per file, including the SFA near-miss that carries a bare "timestamp" key
+    within the first 119 characters of its body. maxEventBytes is 16777216 (16MiB):
+    the largest observed .spin (a class whose size tracks live thread count) is
+    already 3,627,478 bytes against the prior 4MiB ceiling — 16MiB leaves real
+    headroom for a larger one during the exact incident that needs it most.
+  rules:
+    - condition: "true"
+      type: regex
+      timestampAnchorRegex: /^/
+      timestamp:
+        type: auto
+        length: 400
+      timestampTimezone: local
+      timestampEarliest: -420weeks
+      timestampLatest: +1week
+      maxEventBytes: 16777216
+      disabled: false
+      eventBreakerRegex: /^(?=(?:\{[^\n]{0,119}"timestamp":"|Date\/Time:|Use spindump))/m
+      name: crashreport
+  tags: macos,crashreport

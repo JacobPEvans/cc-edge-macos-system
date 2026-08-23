@@ -4,34 +4,49 @@ groups: {}
 asyncFuncTimeout: 1000
 description: >-
   Stamps Splunk-canonical fields (index, sourcetype, host) on every event,
-  parses NDJSON perf snapshots, derives battery health, extracts top
-  processes by energy impact, and flags exec-source anomalies.
+  derives battery health, extracts top processes by energy impact, and flags
+  exec-source anomalies.
 functions:
-  - id: parser
-    filter: "datatype === 'macos-perf-snapshot'"
-    disabled: false
-    conf:
-      mode: extract
-      type: json
-      srcField: _raw
   - id: eval
     filter: "true"
     disabled: false
     conf:
       add:
+        # Perf/metric datatypes route to mac_perf; everything else (event-type
+        # telemetry: unified logs, thermal, battery, crash reports) stays in os.
         - name: index
-          value: "['macos-power-metrics', 'macos-perf-snapshot', 'macos-system-metrics'].includes(datatype) ? 'mac_perf' : 'os'"
+          value: "['macos-power-metrics', 'macos-system-metrics', 'macos-wired-memory'].includes(datatype) ? 'mac_perf' : 'os'"
+        # Explicit per-datatype map, not a fallback chain: an unmatched
+        # datatype (e.g. a new input added without updating this map) is left
+        # with sourcetype undefined so it's visibly wrong rather than silently
+        # mislabeled by a guessed string. Keep these names as the canonical
+        # ones — a downstream Splunk TA has props keyed to this exact
+        # namespacing, and any instance-level config that diverges from it
+        # should be converged to match this pack, not the reverse.
         - name: sourcetype
-          value: "datatype === 'macos-power-metrics' ? 'macos:perf:powermetrics' : (datatype === 'macos-perf-snapshot' ? 'macos:perf:snapshot' : (datatype === 'macos-unified-log' ? 'macos:unified_log' : (datatype ? datatype.replace('macos-power-', 'macos:power:').replace('macos-system-', 'macos:system:') : '')))"
+          value: >-
+            ({'macos-unified-log':'macos:unified_log','macos-system-metrics':'macos:system:metrics','macos-system-thermal':'macos:system:thermal','macos-power-metrics':'macos:perf:powermetrics','macos-power-battery':'macos:power:battery','macos-wired-memory':'macos:perf:wired_memory','macos-crashreport':'macos:crashreport'})[datatype]
         - name: host
           value: "host || C.os.hostname()"
   - id: eval
-    filter: "datatype === 'macos-perf-snapshot' && ts"
+    filter: "datatype === 'macos-crashreport'"
     disabled: false
     conf:
       add:
-        - name: _time
-          value: "C.Time.parse(ts)"
+        # A claim about the bytes in front of the pipeline, not about
+        # provenance: true when the event's raw content itself carries a
+        # report timestamp the breaker could parse (the quoted-timestamp
+        # JSON header for .ips/.panic/.diag, or the Date/Time: line for
+        # .spin); false for .shutdownStall, a binary spindump report with no
+        # timestamp anywhere in the breaker's scan window, whose _time always
+        # falls back to break/arrival time. Deliberately never sets _time —
+        # this is one input to what the breaker already decided, not a
+        # second writer of it. false is not "missing"; it says arrival time
+        # was used, which is a stronger, more useful signal than a marker
+        # that only ever appears on the failure case.
+        - name: crash_time_in_band
+          value: >-
+            /^(?:\{[^\n]{0,119}"timestamp":"|Date\/Time:)/.test(_raw)
   - id: eval
     filter: "datatype === 'macos-power-battery'"
     disabled: false

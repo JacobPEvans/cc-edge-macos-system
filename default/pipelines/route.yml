@@ -52,13 +52,33 @@ routes:
     filter: __inputId=='exec:cc-edge-the-mac-pack-io.macos-power-battery'
     clones: []
     output: default
-  - id: mac-perf-snapshots
-    name: macOS Perf Snapshots (NDJSON File)
+  - id: wired-memory
+    name: Wired Memory (Exec Source)
     final: true
     disabled: false
     pipeline: main
-    description: "macOS perf snapshots tailed from NDJSON files emitted by collect-snapshot.py"
+    description: "macOS wired memory vs. iogpu.wired_limit_mb ceiling — the panic predictor"
     enableOutputExpression: false
-    filter: __inputId=='file:cc-edge-the-mac-pack-io.mac-perf-snapshots'
+    filter: __inputId=='exec:cc-edge-the-mac-pack-io.macos-wired-memory'
+    clones: []
+    output: default
+  - id: crashreports-sys
+    name: Crash Reports — System (File Source)
+    final: true
+    disabled: false
+    pipeline: main
+    description: "macOS system-level diagnostic reports (/Library/Logs/DiagnosticReports)"
+    enableOutputExpression: false
+    filter: __inputId=='file:cc-edge-the-mac-pack-io.in_macos_crashreports_sys'
+    clones: []
+    output: default
+  - id: crashreports-user
+    name: Crash Reports — User (File Source)
+    final: true
+    disabled: false
+    pipeline: main
+    description: "macOS user-level diagnostic reports (~/Library/Logs/DiagnosticReports)"
+    enableOutputExpression: false
+    filter: __inputId=='file:cc-edge-the-mac-pack-io.in_macos_crashreports_user'
     clones: []
     output: default

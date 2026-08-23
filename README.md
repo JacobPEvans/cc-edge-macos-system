@@ -12,9 +12,11 @@ capture, falling back to Exec sources only for data the native Sources don't yet
 (per-process energy via `powermetrics`, battery cycle/health via `ioreg`, and macOS
 thermal pressure via `pmset`).
 
-Design rule: **Edge captures broadly, Stream filters.** Source-level predicates that
-narrow to specific use cases (WindowServer ping detection, Jetsam triage, security event
-extraction, etc.) belong in Stream-side pipelines downstream of Edge — not in this pack.
+Design rule: **Edge captures broadly, Stream filters — unless volume makes that
+uneconomical.** `in_apple_unified_logs`'s predicate is the one exception (v0.4.0):
+`subsystem BEGINSWITH "com.apple"` ran 1.33M events/day, most of it noise, and that cost
+was itself why the one signal that mattered got lost. New use-case filtering still
+belongs in Stream; this predicate stays narrow at the Edge on purpose.
 
 Events flow through Cribl Stream into Splunk (or any destination).
 
@@ -32,96 +34,23 @@ loop. In v0.3 that filtering moves to Stream — the Edge now captures the full 
 Unified Log stream broadly, and Stream pipelines extract the ping-timeout signal (and
 any other subsystem-of-interest) downstream.
 
-## Data Sources
+## Data sources
 
-### Apple Unified Logs (`in_apple_unified_logs`) — Native 4.18 Source
-
-- **Type**: `apple_unified_logs` (macOS Edge only)
-- **Polling**: 5 second internal poll (Cribl-managed)
-- **Predicate**: `subsystem BEGINSWITH "com.apple"` — broad capture of every Apple
-  subsystem (kernel, WindowServer, security, network, power, Spotlight, Time Machine,
-  TCC, sandbox, launchservices, xpc, etc.). Override to `TRUEPREDICATE` for 3rd-party
-  app logs as well.
-- **Read mode**: `lastEntry` (new entries only on (re)start). Switch to `allEvents` for
-  historical backfill.
-- **Sourcetype** (assigned in pipeline): `macos:unified_log`
-- **Index**: `os`
-- **Replaces**: v0.2 exec sources `macos-windowserver-health` and `macos-jetsam-events`.
-  Filtering for those specific signals now lives in Stream pipelines.
-
-### System Metrics (`in_system_metrics`) — Native 4.18 Source
-
-- **Type**: `system_metrics` (Linux + macOS Edge)
-- **Polling**: 60 seconds
-- **Collectors**: CPU, memory, disk, network, system, process (configure detail level
-  per category in Cribl UI). Container + GPU collectors stay disabled on macOS.
-- **Sourcetype** (assigned in pipeline): `macos:system:metrics`
-- **Index**: `mac_perf`
-- **Replaces**: v0.2 exec sources `macos-memory-pressure`, `macos-vm-stat`,
-  `macos-disk-io`, `macos-process-top`.
-
-### Thermal Status (`macos-thermal`) — Exec Source
-
-- **Interval**: 60 seconds
-- **Command**: `pmset -g therm`
-- **Sourcetype**: `macos:system:thermal`
-- **Captures**: Thermal warning level, performance warning level, CPU power status
-- **Why exec**: System Metrics Source on macOS doesn't yet surface system-wide thermal
-  pressure / CPU power throttling state.
-- **Requires**: No special privileges
-
-### Power Metrics (`macos-power-metrics`) — Exec Source
-
-- **Interval**: 300 seconds (5 minutes)
-- **Command**: `powermetrics --samplers tasks,battery,cpu_power,gpu_power,ane_power,thermal ...`
-  piped through `plutil -convert json` — full command in [`default/inputs.yml`](default/inputs.yml)
-- **Sourcetype**: `macos:perf:powermetrics`
-- **Index**: `mac_perf`
-- **Captures**: Per-process energy impact (top 10), CPU package power (mW), GPU power,
-  ANE power, thermal pressure state, processor frequency
-- **Anomaly**: `thermal.thermal_pressure !== 'Nominal'` sets `anomaly=true`
-- **Why exec**: No native 4.18 Source exposes per-process energy / ANE power.
-- **Requires**: Root privileges
-
-### Battery Health (`macos-power-battery`) — Exec Source
-
-- **Interval**: 60 seconds
-- **Command**: Bash combining `pmset -g batt` + `ioreg -r -c AppleSmartBattery`
-- **Sourcetype**: `macos:power:battery`
-- **Captures**: Charge percentage, power source (AC/Battery), charging state,
-  cycle count, max/design/current capacity, temperature, voltage
-- **Derived**: `battery_health_percent = max_capacity / design_capacity × 100`
-- **Anomaly**: `battery_health_percent < 80` sets `anomaly=true`
-- **Why exec**: No native Source exposes battery cycle count / design capacity /
-  IOKit `AppleSmartBattery` properties.
-- **Requires**: No special privileges
-
-### Perf Snapshots (`mac-perf-snapshots`) — File Source
-
-- **Interval**: 30 seconds (file poll)
-- **Source**: NDJSON files at `$MAC_PERF_SNAPSHOTS_DIR` (one event per line)
-- **Sourcetype**: `macos:perf:snapshot`
-- **Index**: `mac_perf`
-- **Captures**: Aggregate host perf snapshot — load averages, memory totals, swap I/O,
-  top CPU/RSS processes, zombie process tree, sleep assertions, 24h crash counts,
-  listening ports, logged-in users, kernel_task CPU%
-- **Producer**: An external snapshot collector (e.g., a standalone Python script run by
-  a per-user LaunchAgent on a 5-minute cadence) writing daily-rotated
-  `<YYYY-MM-DD>.ndjson` files
-- **Time extraction**: `_time` is set from the `ts` field in each event (ISO 8601 UTC),
-  not Cribl ingestion time
-- **Requires**: Read access to the snapshot directory; no special privileges
+Six inputs: Apple Unified Logs, system metrics, thermal status, power
+metrics, battery health, wired memory, and crash reports. Per-source
+detail — what each one collects, which binaries it calls, and the
+sourcetype it lands under — is in [`docs/SOURCES.md`](docs/SOURCES.md).
 
 ## Data Flow
 
 ```text
-Apple Unified Logging                                    Cribl native
-   subsystem BEGINSWITH "com.apple"        ┐              4.18 Source
-macOS kernel/system metrics                ┤
-   CPU, memory, disk, network, processes   ┘
-pmset / powermetrics / ioreg               ┐              Cribl Exec
-                                           ┤              + File
-collect-snapshot.py NDJSON files           ┘              Sources
+Apple Unified Logging (narrowed predicate)                Cribl native
+   jetsam/panic/thermal/watchdog signal path ┐              4.18 Source
+macOS kernel/system metrics                  ┤
+   CPU, memory, disk, network, processes     ┘
+pmset / powermetrics / ioreg / vm_stat       ┐              Cribl Exec
+DiagnosticReports crash files                ┤              + File
+                                             ┘              Sources
                        │
                        ▼
                  Cribl Edge (native macOS, /opt/cribl/)
@@ -132,9 +61,9 @@ collect-snapshot.py NDJSON files           ┘              Sources
                        ▼
                  Splunk:
                    index=os         sourcetype=macos:unified_log | macos:system:thermal
-                                    | macos:power:battery
+                                    | macos:power:battery | macos:crashreport
                    index=mac_perf   sourcetype=macos:system:metrics | macos:perf:powermetrics
-                                    | macos:perf:snapshot
+                                    | macos:perf:wired_memory
 ```
 
 ## Anomaly Detection
@@ -145,7 +74,7 @@ timeouts, and Jetsam events moves to Stream — the broad Apple Unified Logs / S
 Metrics streams already carry the underlying data; Stream pipelines extract the signal.
 
 | Condition | anomaly_reason | Detected at |
-|-----------|----------------|-------------|
+| ----------- | ---------------- | ------------- |
 | Battery health < 80% | `battery_health_degraded` | Edge (this pack) |
 | Thermal pressure not Nominal | `thermal_pressure_elevated` | Edge (this pack) |
 | Memory pressure critical | (Stream-side, future) | Stream |
@@ -168,11 +97,13 @@ Use these fields in Splunk to alert on what Edge does flag:
 | `macos:system:thermal` | `os` | Exec |
 | `macos:power:battery` | `os` | Exec |
 | `macos:perf:powermetrics` | `mac_perf` | Exec |
-| `macos:perf:snapshot` | `mac_perf` | File (NDJSON) |
+| `macos:perf:wired_memory` | `mac_perf` | Exec |
+| `macos:crashreport` | `os` | File |
 
-The file-based snapshot input requires the `MAC_PERF_SNAPSHOTS_DIR` environment variable
-to be set on the Cribl Edge worker, pointing at the directory where the snapshot
-collector writes its NDJSON files.
+The `sourcetype` eval in `default/pipelines/main/conf.yml` is an explicit per-datatype map,
+not a fallback chain — an unmatched `datatype` is left with `sourcetype` undefined rather
+than silently guessed, so a new input that isn't wired into the map is visibly wrong
+instead of mislabeled.
 
 To customize, create local overrides in `/opt/cribl/local/cc-edge-the-mac-pack-io/`:
 
@@ -180,13 +111,13 @@ To customize, create local overrides in `/opt/cribl/local/cc-edge-the-mac-pack-i
 # /opt/cribl/local/cc-edge-the-mac-pack-io/inputs.yml
 inputs:
   in_apple_unified_logs:
-    predicate: 'TRUEPREDICATE'   # capture 3rd-party app logs too
+    predicate: 'TRUEPREDICATE'   # capture everything, not just the panic signal path
   in_system_metrics:
     pollingInterval: 30          # increase metric frequency
   macos-power-metrics:
     disabled: true               # disable if root unavailable
-  mac-perf-snapshots:
-    disabled: true               # disable if no external collector is running
+  macos-wired-memory:
+    interval: 30                 # tighten the panic-predictor sample rate
 ```
 
 ## Installation
@@ -213,7 +144,7 @@ inputs:
 ### Power Metrics Events (`macos:perf:powermetrics`)
 
 | Field | Type | Description |
-|-------|------|-------------|
+| ------- | ------ | ------------- |
 | top_processes | array | Top 10 processes by energy impact `{name, pid, energy_impact}` |
 | thermal_pressure | string | Thermal pressure state (`Nominal`, `Moderate`, `Heavy`, `Trapping`) |
 | processor | object | CPU package power (mW), frequency per cluster |
@@ -223,7 +154,7 @@ inputs:
 ### Battery Events (`macos:power:battery`)
 
 | Field | Type | Description |
-|-------|------|-------------|
+| ------- | ------ | ------------- |
 | charge_percent | number | Current charge percentage |
 | power_source | string | `AC` or `Battery` |
 | charging_state | string | `charging`, `discharging`, `charged`, or `unknown` |
@@ -245,89 +176,13 @@ pipelines do downstream extraction.
 ### Common Fields (all sourcetypes)
 
 | Field | Type | Description |
-|-------|------|-------------|
-| index | string | `os` for unified-log + thermal + battery; `mac_perf` for system metrics + powermetrics + snapshots |
+| ------- | ------ | ------------- |
+| index | string | `os` for unified-log + thermal + battery + crash reports; `mac_perf` for system metrics + powermetrics + wired memory |
 | sourcetype | string | See namespace table above |
 | host | string | Hostname of the Edge node |
 | anomaly | boolean | `true` when anomaly detected (exec sources only — see Anomaly Detection) |
 | anomaly_reason | string | Anomaly type identifier |
 
-## Release Notes
+## Release notes
 
-### v0.3.1 (2026-07-08)
-
-- **Pipeline file moved to Cribl's on-disk layout**: `default/pipelines/main.yml`
-  (flat file in API-response shape) → `default/pipelines/main/conf.yml` (pipeline
-  conf shape). The flat file was not loadable as pack pipeline config; routes
-  referencing `main` would not have applied the pack's field stamping. No logic
-  changes — functions are identical.
-- **`default/pack.yml` corrected** to a pack manifest (was a stray `id: default`
-  copied from route config).
-- **CI fixed**: the reusable validate workflow reference now uses the renamed
-  GitHub account owner (Actions `uses:` does not follow account-rename redirects;
-  every run since the rename failed at workflow-file resolution). Renovate preset
-  reference updated for the same reason.
-- **Docs**: removed references to a private external repo from this public README;
-  release commands in `CLAUDE.md` point at the current repo owner.
-- **`.gitignore`**: locally-built `*.crbl` release artifacts are now ignored.
-
-### v0.3.0 (2026-05-20)
-
-- **Native 4.18 Sources adopted**:
-  - `in_apple_unified_logs` (broad capture, `subsystem BEGINSWITH "com.apple"`)
-  - `in_system_metrics` (host CPU/memory/disk/network + process)
-- **Six exec inputs retired** in favor of the native Sources:
-  - `macos-memory-pressure`, `macos-vm-stat`, `macos-disk-io`, `macos-process-top`,
-    `macos-windowserver-health`, `macos-jetsam-events`
-- **Architecture shift**: Edge now captures broadly; Stream-side pipelines handle
-  per-use-case filtering. Anomaly detection for memory pressure / WindowServer pings /
-  Jetsam events moves to Stream (out of scope for this pack release).
-- **Three exec inputs retained**: `macos-thermal`, `macos-power-metrics`,
-  `macos-power-battery` — no 4.18 native equivalent.
-- **`minLogStreamVersion` bumped to `4.18.0`** (required for the new Source types).
-- **BREAKING** for v0.2 dashboards filtering `sourcetype=macos:system:memory|windowserver|jetsam|process|diskio|vmstat`
-  — those sourcetypes no longer exist on Edge. The equivalent data is now under
-  `macos:unified_log` and `macos:system:metrics`; rebuild downstream dashboards accordingly.
-
-### v0.2.0 (2026-04-29)
-
-- **New File input** `mac-perf-snapshots` — tails NDJSON files emitted by an external
-  snapshot collector. Reads `*.ndjson` from `$MAC_PERF_SNAPSHOTS_DIR`, parses each JSON line, sets `_time`
-  from the event's `ts` field, routes to `index=mac_perf` with sourcetype
-  `macos:perf:snapshot`.
-- **Powermetrics retargeted** — the existing `macos-power-metrics` Exec input now writes
-  to `index=mac_perf` with sourcetype `macos:perf:powermetrics`.
-  **BREAKING** for any v0.1.0 dashboards or alerts that filtered
-  `index=os sourcetype=macos:power:metrics`; update saved searches accordingly.
-- **New `perf` streamtag** added to pack metadata.
-- **Sample queries:**
-
-  ```spl
-  index=mac_perf sourcetype="macos:perf:snapshot" earliest=-1h | head 5
-  index=mac_perf sourcetype="macos:perf:powermetrics" earliest=-1h | head 5
-  ```
-
-- **Prerequisites for v0.2.0:**
-  - Splunk index `mac_perf` exists (provisioned by ansible-splunk).
-  - Splunk add-on `VisiCore_TA_AI_Observability` includes `[macos:perf:snapshot]` and `[macos:perf:powermetrics]` props.
-  - For the file input to have data: a snapshot collector must be installed on the Mac
-    (e.g., as a per-user LaunchAgent).
-  - Cribl Edge worker has `MAC_PERF_SNAPSHOTS_DIR` env var set.
-
-### v0.1.0 (2026-04-18)
-
-- **Initial release** of `cc-edge-the-mac-pack-io` — consolidates `cc-edge-macos-system`
-  and `cc-edge-macos-power` (both predecessor repos archived).
-- **Nine Exec inputs**:
-  - System monitoring: WindowServer health (60s), memory pressure (60s),
-    Jetsam events (5min), process stats (60s), disk I/O (60s), VM stats (60s),
-    thermal status (60s)
-  - Power monitoring: per-process energy metrics + thermal (300s),
-    battery health (60s)
-- **Anomaly detection** for: memory pressure, WindowServer timeouts, Jetsam events,
-  battery health degradation, thermal pressure elevation.
-- **Sourcetype namespaces**: `macos:system:*` and `macos:power:*`.
-
----
-
-> Part of a [larger ecosystem of ~40 repos](https://docs.jacobpevans.com) — see how it all fits together.
+See [`CHANGELOG.md`](CHANGELOG.md).
