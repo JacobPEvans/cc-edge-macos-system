@@ -4,7 +4,7 @@ Per-source reference for this pack: what each input collects, the binaries
 it calls, and the sourcetype it lands under. Overview, data flow and field
 tables stay in [`README.md`](../README.md).
 
-### Apple Unified Logs (`in_apple_unified_logs`) — Native 4.18 Source
+## Apple Unified Logs (`in_apple_unified_logs`) — Native 4.18 Source
 
 - **Type**: `apple_unified_logs` (macOS Edge only)
 - **Polling**: 5 second internal poll (Cribl-managed)
@@ -35,7 +35,7 @@ tables stay in [`README.md`](../README.md).
   add roughly 26% volume from routine compositor chatter, and the compositor-starvation
   signal that matters is already caught by `DumpPanic` and `userspace watchdog timeout`.
 
-### System Metrics (`in_system_metrics`) — Native 4.18 Source
+## System Metrics (`in_system_metrics`) — Native 4.18 Source
 
 - **Type**: `system_metrics` (Linux + macOS Edge)
 - **Polling**: 60 seconds
@@ -46,7 +46,7 @@ tables stay in [`README.md`](../README.md).
 - **Replaces**: v0.2 exec sources `macos-memory-pressure`, `macos-vm-stat`,
   `macos-disk-io`, `macos-process-top`.
 
-### Thermal Status (`macos-thermal`) — Exec Source
+## Thermal Status (`macos-thermal`) — Exec Source
 
 - **Interval**: 60 seconds
 - **Command**: `pmset -g therm`
@@ -56,7 +56,7 @@ tables stay in [`README.md`](../README.md).
   pressure / CPU power throttling state.
 - **Requires**: No special privileges
 
-### Power Metrics (`macos-power-metrics`) — Exec Source
+## Power Metrics (`macos-power-metrics`) — Exec Source
 
 - **Interval**: 300 seconds (5 minutes)
 - **Command**: `powermetrics --samplers tasks,battery,cpu_power,gpu_power,ane_power,thermal ...`
@@ -74,7 +74,7 @@ tables stay in [`README.md`](../README.md).
 - **Why exec**: No native 4.18 Source exposes per-process energy / ANE power.
 - **Requires**: Root privileges
 
-### Battery Health (`macos-power-battery`) — Exec Source
+## Battery Health (`macos-power-battery`) — Exec Source
 
 - **Interval**: 60 seconds
 - **Command**: Bash combining `pmset -g batt` + `ioreg -r -c AppleSmartBattery`
@@ -87,7 +87,7 @@ tables stay in [`README.md`](../README.md).
   IOKit `AppleSmartBattery` properties.
 - **Requires**: No special privileges
 
-### Wired Memory (`macos-wired-memory`) — Exec Source
+## Wired Memory (`macos-wired-memory`) — Exec Source
 
 - **Interval**: 60 seconds
 - **Command**: chained stock binaries (`vm_stat`, `sysctl`, `ps`, `awk`) — no script file;
@@ -107,7 +107,7 @@ tables stay in [`README.md`](../README.md).
   stanza yet in `VisiCore_TA_AI_Observability`'s `props.conf` — this data ships unparsed
   by that TA until a stanza is added there (a separate repo/change, not done here).
 
-### Crash Reports (`in_macos_crashreports_sys`, `in_macos_crashreports_user`) — File Sources
+## Crash Reports (`in_macos_crashreports_sys`, `in_macos_crashreports_user`) — File Sources
 
 - **Interval**: 60 seconds (file poll), `tailOnly: true` (new reports only)
 - **Paths**: `/Library/Logs/DiagnosticReports/` and `$HOME/Library/Logs/DiagnosticReports/`
