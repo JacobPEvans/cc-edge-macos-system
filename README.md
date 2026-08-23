@@ -12,9 +12,11 @@ capture, falling back to Exec sources only for data the native Sources don't yet
 (per-process energy via `powermetrics`, battery cycle/health via `ioreg`, and macOS
 thermal pressure via `pmset`).
 
-Design rule: **Edge captures broadly, Stream filters.** Source-level predicates that
-narrow to specific use cases (WindowServer ping detection, Jetsam triage, security event
-extraction, etc.) belong in Stream-side pipelines downstream of Edge — not in this pack.
+Design rule: **Edge captures broadly, Stream filters — unless volume makes that
+uneconomical.** `in_apple_unified_logs`'s predicate is the one exception (v0.4.0):
+`subsystem BEGINSWITH "com.apple"` ran 1.33M events/day, most of it noise, and that cost
+was itself why the one signal that mattered got lost. New use-case filtering still
+belongs in Stream; this predicate stays narrow at the Edge on purpose.
 
 Events flow through Cribl Stream into Splunk (or any destination).
 
@@ -38,16 +40,32 @@ any other subsystem-of-interest) downstream.
 
 - **Type**: `apple_unified_logs` (macOS Edge only)
 - **Polling**: 5 second internal poll (Cribl-managed)
-- **Predicate**: `subsystem BEGINSWITH "com.apple"` — broad capture of every Apple
-  subsystem (kernel, WindowServer, security, network, power, Spotlight, Time Machine,
-  TCC, sandbox, launchservices, xpc, etc.). Override to `TRUEPREDICATE` for 3rd-party
-  app logs as well.
-- **Read mode**: `lastEntry` (new entries only on (re)start). Switch to `allEvents` for
-  historical backfill.
+- **Predicate**: narrowed (v0.4.0) to the panic/thermal/jetsam signal
+  path — kernel jetsam/memorystatus/panic/thermal/IOGPU/AGX events, DumpPanic,
+  ReportCrash, thermalmonitord, and the WindowServer watchdog-timeout/GPU-restart
+  strings. The prior broad `subsystem BEGINSWITH "com.apple"` predicate ran 1.33M
+  events/day (dominated by runningboardd/WallpaperAgent noise) and buried the one line
+  that mattered; this predicate measures 63k/day, a 21x reduction, while still catching
+  it. Full expression in [`default/inputs.yml`](default/inputs.yml).
+- **Read mode**: no `readMode` key is set. `lastEntry` is **not** a valid enum value
+  (validator only accepts `oldest`/`newest`) — it silently rejected this input on every
+  restart and it had never run once. Do not set it; the default (`newest`) is correct.
 - **Sourcetype** (assigned in pipeline): `macos:unified_log`
 - **Index**: `os`
 - **Replaces**: v0.2 exec sources `macos-windowserver-health` and `macos-jetsam-events`.
   Filtering for those specific signals now lives in Stream pipelines.
+- **`memory pressure` is deliberately unscoped**, unlike the other clauses in its group
+  — see the comment in [`default/inputs.yml`](default/inputs.yml) for the measurement
+  that found the kernel-scoped form matches zero events, versus 73–93 unscoped over the
+  same window.
+- **Known unverified clause**: `GPU restart` / `gpu hang` have no confirmed macOS
+  emitter — kept on a rare-vs-invented judgment call, not evidence.
+- **Known gap**: `low swap` is kernel-scoped by assumption only, the same assumption
+  already found wrong for `memory pressure`; unverified because no observed window has
+  had a nonzero swap rate.
+- **Known gap, deliberate**: `Metal` and `SkyLight` are not in the predicate — they would
+  add roughly 26% volume from routine compositor chatter, and the compositor-starvation
+  signal that matters is already caught by `DumpPanic` and `userspace watchdog timeout`.
 
 ### System Metrics (`in_system_metrics`) — Native 4.18 Source
 
@@ -74,7 +92,12 @@ any other subsystem-of-interest) downstream.
 
 - **Interval**: 300 seconds (5 minutes)
 - **Command**: `powermetrics --samplers tasks,battery,cpu_power,gpu_power,ane_power,thermal ...`
-  piped through `plutil -convert json` — full command in [`default/inputs.yml`](default/inputs.yml)
+  piped through `plutil -replace timestamp -string "" -o - -` then `plutil -convert json`
+  — full command in [`default/inputs.yml`](default/inputs.yml). The `-replace` step is
+  required: `plutil -convert json` cannot represent the plist `<date>` type that
+  powermetrics always emits in its per-sample header, so every sample failed to convert
+  before this fix (v0.4.0). `-remove` was tried first but hard-fails whenever the
+  key is briefly absent; `-replace` creates it and cannot fail that way.
 - **Sourcetype**: `macos:perf:powermetrics`
 - **Index**: `mac_perf`
 - **Captures**: Per-process energy impact (top 10), CPU package power (mW), GPU power,
@@ -96,32 +119,76 @@ any other subsystem-of-interest) downstream.
   IOKit `AppleSmartBattery` properties.
 - **Requires**: No special privileges
 
-### Perf Snapshots (`mac-perf-snapshots`) — File Source
+### Wired Memory (`macos-wired-memory`) — Exec Source
 
-- **Interval**: 30 seconds (file poll)
-- **Source**: NDJSON files at `$MAC_PERF_SNAPSHOTS_DIR` (one event per line)
-- **Sourcetype**: `macos:perf:snapshot`
+- **Interval**: 60 seconds
+- **Command**: chained stock binaries (`vm_stat`, `sysctl`, `ps`, `awk`) — no script file;
+  full command in [`default/inputs.yml`](default/inputs.yml)
+- **Sourcetype**: `macos:perf:wired_memory`
 - **Index**: `mac_perf`
-- **Captures**: Aggregate host perf snapshot — load averages, memory totals, swap I/O,
-  top CPU/RSS processes, zombie process tree, sleep assertions, 24h crash counts,
-  listening ports, logged-in users, kernel_task CPU%
-- **Producer**: An external snapshot collector (e.g., a standalone Python script run by
-  a per-user LaunchAgent on a 5-minute cadence) writing daily-rotated
-  `<YYYY-MM-DD>.ndjson` files
-- **Time extraction**: `_time` is set from the `ts` field in each event (ISO 8601 UTC),
-  not Cribl ingestion time
-- **Requires**: Read access to the snapshot directory; no special privileges
+- **Captures**: `wired_bytes` (from `vm_stat` "Pages wired down" × `sysctl hw.pagesize`,
+  never hardcoded), `wired_ceiling_mb`/`wired_ceiling_bytes` (`sysctl iogpu.wired_limit_mb`),
+  `wired_ratio`, and `resident_bytes` (summed across all processes via `ps`, so leaked
+  wired memory — `wired - resident - baseline` — is directly calculable)
+- **Why**: Wired memory vs. the `iogpu.wired_limit_mb` ceiling predicts this failure
+  class — a wired/ceiling ratio above ~0.9 has preceded a crash in observed data, and
+  nothing tracked that ratio before this input. Neither wired memory nor the ceiling is
+  a native `system_metrics` field (checked 4.19 docs; only `memory_percent` is exposed).
+- **Requires**: No special privileges
+- **Known follow-up**: `macos:perf:wired_memory` is a new stream and has no matching
+  stanza yet in `VisiCore_TA_AI_Observability`'s `props.conf` — this data ships unparsed
+  by that TA until a stanza is added there (a separate repo/change, not done here).
+
+### Crash Reports (`in_macos_crashreports_sys`, `in_macos_crashreports_user`) — File Sources
+
+- **Interval**: 60 seconds (file poll), `tailOnly: true` (new reports only)
+- **Paths**: `/Library/Logs/DiagnosticReports/` and `$HOME/Library/Logs/DiagnosticReports/`
+- **Filenames**: `*.ips`, `*.panic`, `*.crash`, `*.diag`, `*.hang`, `*.spin`,
+  `*.shutdownStall` — `.spin` and `.shutdownStall` added in v0.4.0; `.spin` carries
+  the blocked-thread stack for a hung process (the single most diagnostic artifact for a
+  blocked main-thread hang) and `.shutdownStall` marks an unclean shutdown.
+- **Sourcetype**: `macos:crashreport`
+- **Index**: `os`
+- **Event breaker**: `MacOS Crash Reports` (see [`default/breakers.yml`](default/breakers.yml)) —
+  **one event per file**, not per line. The default newline-delimited breaker shattered a
+  single WindowServer `.ips` into 2,560 separate events, scattering the `ws_main_thread`
+  stack across unreadable rows and stamping `_time` on only the one line that carried a
+  timestamp. The custom `eventBreakerRegex` fires only on a report's opening line: an
+  object whose first key's value is a quoted timestamp string (`{"timestamp":"..."`), or
+  `Date/Time:`/`Use spindump` for `.spin`/`.shutdownStall`. A plain `{"` anchor is not
+  enough — some `.diag` bodies (the `SFA-*` family) are compact single-line JSON starting
+  at column 0, so `{"` alone matches the header *and* the body and splits the file in
+  two, one half stamped at arrival time. Requiring the quoted `"timestamp":"` value
+  excludes those bodies structurally, since their embedded timestamp (when present) is a
+  bare epoch float, not a quoted string — verified against every crash-report artifact
+  swept by these globs on this host (`/Library` + `$HOME` DiagnosticReports, recursive,
+  Retired/ included), one event each, zero exceptions. `maxEventBytes` is 16MiB — the
+  largest observed `.spin` is already 3.6MB against the prior 4MB ceiling, and `.spin`
+  size tracks live thread count.
+- **`crash_time_in_band`** (boolean, every event): true when the event's own bytes carry
+  a report timestamp the breaker could parse; false for `.shutdownStall`, which has no
+  timestamp anywhere in the breaker's scan window and always falls back to arrival time.
+  Never writes `_time` itself — the breaker remains the sole `_time` writer — and is a
+  claim about the bytes, not about provenance, so it stays true regardless of whether the
+  breaker's own parse happened to succeed.
+- **Requires**: Read access to `/Library/Logs/DiagnosticReports/` (root-owned directory,
+  world-readable listing; per-file permissions vary)
+- **Known follow-up**: `macos:crashreport` has no matching stanza in
+  `VisiCore_TA_AI_Observability`'s `props.conf` — this data ships unparsed by that TA
+  until a stanza is added there (a separate repo/change, not done here). Higher priority
+  than the `macos:perf:wired_memory` gap below: this stream already has real event
+  volume.
 
 ## Data Flow
 
 ```text
-Apple Unified Logging                                    Cribl native
-   subsystem BEGINSWITH "com.apple"        ┐              4.18 Source
-macOS kernel/system metrics                ┤
-   CPU, memory, disk, network, processes   ┘
-pmset / powermetrics / ioreg               ┐              Cribl Exec
-                                           ┤              + File
-collect-snapshot.py NDJSON files           ┘              Sources
+Apple Unified Logging (narrowed predicate)                Cribl native
+   jetsam/panic/thermal/watchdog signal path ┐              4.18 Source
+macOS kernel/system metrics                  ┤
+   CPU, memory, disk, network, processes     ┘
+pmset / powermetrics / ioreg / vm_stat       ┐              Cribl Exec
+DiagnosticReports crash files                ┤              + File
+                                             ┘              Sources
                        │
                        ▼
                  Cribl Edge (native macOS, /opt/cribl/)
@@ -132,9 +199,9 @@ collect-snapshot.py NDJSON files           ┘              Sources
                        ▼
                  Splunk:
                    index=os         sourcetype=macos:unified_log | macos:system:thermal
-                                    | macos:power:battery
+                                    | macos:power:battery | macos:crashreport
                    index=mac_perf   sourcetype=macos:system:metrics | macos:perf:powermetrics
-                                    | macos:perf:snapshot
+                                    | macos:perf:wired_memory
 ```
 
 ## Anomaly Detection
@@ -145,7 +212,7 @@ timeouts, and Jetsam events moves to Stream — the broad Apple Unified Logs / S
 Metrics streams already carry the underlying data; Stream pipelines extract the signal.
 
 | Condition | anomaly_reason | Detected at |
-|-----------|----------------|-------------|
+| ----------- | ---------------- | ------------- |
 | Battery health < 80% | `battery_health_degraded` | Edge (this pack) |
 | Thermal pressure not Nominal | `thermal_pressure_elevated` | Edge (this pack) |
 | Memory pressure critical | (Stream-side, future) | Stream |
@@ -168,11 +235,13 @@ Use these fields in Splunk to alert on what Edge does flag:
 | `macos:system:thermal` | `os` | Exec |
 | `macos:power:battery` | `os` | Exec |
 | `macos:perf:powermetrics` | `mac_perf` | Exec |
-| `macos:perf:snapshot` | `mac_perf` | File (NDJSON) |
+| `macos:perf:wired_memory` | `mac_perf` | Exec |
+| `macos:crashreport` | `os` | File |
 
-The file-based snapshot input requires the `MAC_PERF_SNAPSHOTS_DIR` environment variable
-to be set on the Cribl Edge worker, pointing at the directory where the snapshot
-collector writes its NDJSON files.
+The `sourcetype` eval in `default/pipelines/main/conf.yml` is an explicit per-datatype map,
+not a fallback chain — an unmatched `datatype` is left with `sourcetype` undefined rather
+than silently guessed, so a new input that isn't wired into the map is visibly wrong
+instead of mislabeled.
 
 To customize, create local overrides in `/opt/cribl/local/cc-edge-the-mac-pack-io/`:
 
@@ -180,13 +249,13 @@ To customize, create local overrides in `/opt/cribl/local/cc-edge-the-mac-pack-i
 # /opt/cribl/local/cc-edge-the-mac-pack-io/inputs.yml
 inputs:
   in_apple_unified_logs:
-    predicate: 'TRUEPREDICATE'   # capture 3rd-party app logs too
+    predicate: 'TRUEPREDICATE'   # capture everything, not just the panic signal path
   in_system_metrics:
     pollingInterval: 30          # increase metric frequency
   macos-power-metrics:
     disabled: true               # disable if root unavailable
-  mac-perf-snapshots:
-    disabled: true               # disable if no external collector is running
+  macos-wired-memory:
+    interval: 30                 # tighten the panic-predictor sample rate
 ```
 
 ## Installation
@@ -213,7 +282,7 @@ inputs:
 ### Power Metrics Events (`macos:perf:powermetrics`)
 
 | Field | Type | Description |
-|-------|------|-------------|
+| ------- | ------ | ------------- |
 | top_processes | array | Top 10 processes by energy impact `{name, pid, energy_impact}` |
 | thermal_pressure | string | Thermal pressure state (`Nominal`, `Moderate`, `Heavy`, `Trapping`) |
 | processor | object | CPU package power (mW), frequency per cluster |
@@ -223,7 +292,7 @@ inputs:
 ### Battery Events (`macos:power:battery`)
 
 | Field | Type | Description |
-|-------|------|-------------|
+| ------- | ------ | ------------- |
 | charge_percent | number | Current charge percentage |
 | power_source | string | `AC` or `Battery` |
 | charging_state | string | `charging`, `discharging`, `charged`, or `unknown` |
@@ -245,14 +314,47 @@ pipelines do downstream extraction.
 ### Common Fields (all sourcetypes)
 
 | Field | Type | Description |
-|-------|------|-------------|
-| index | string | `os` for unified-log + thermal + battery; `mac_perf` for system metrics + powermetrics + snapshots |
+| ------- | ------ | ------------- |
+| index | string | `os` for unified-log + thermal + battery + crash reports; `mac_perf` for system metrics + powermetrics + wired memory |
 | sourcetype | string | See namespace table above |
 | host | string | Hostname of the Edge node |
 | anomaly | boolean | `true` when anomaly detected (exec sources only — see Anomaly Detection) |
 | anomaly_reason | string | Anomaly type identifier |
 
 ## Release Notes
+
+### v0.4.0 (2026-08-23)
+
+Fixes for several macOS telemetry sources that were silently non-functional, broken,
+or incomplete, plus a new source for a metric that nothing tracked before.
+
+- **`in_apple_unified_logs` had never run**: `readMode: lastEntry` is not a valid enum
+  value and the input was rejected on every restart. Removed the key (default `newest`
+  is correct) and narrowed the predicate to the panic/thermal/jetsam signal path — a
+  21x volume reduction (1.33M/day → 63k/day) applied in the same change so fixing the
+  enum alone wouldn't flood the destination.
+- **`macos-power-metrics` could never convert to JSON**: `plutil -convert json` cannot
+  represent the plist `<date>` type that powermetrics always emits; every sample failed.
+  Fixed with `plutil -replace timestamp -string "" -o - -` before the JSON conversion.
+- **New crash-report globs** `*.spin` and `*.shutdownStall` on the crash-report file
+  inputs — `.spin` carries the blocked-thread stack for a hang, `.shutdownStall` marks
+  an unclean shutdown; neither was collected before.
+- **New event breaker** `MacOS Crash Reports` (`default/breakers.yml`) — one event per
+  file, breaking only on a report's opening line (`{"..."` / `Date/Time:` / `Use
+  spindump`), since Cribl 4.19 has no true one-event-per-file ruleType. Verified against
+  real crash-report samples: a 2,560-line WindowServer `.ips` produces exactly one event
+  containing the `ws_main_thread` stack.
+- **New `in_macos_crashreports_sys` / `in_macos_crashreports_user` File inputs** — crash
+  reports were not collected by this pack at all before this release.
+- **New `macos-wired-memory` Exec input** — wired memory vs. the `iogpu.wired_limit_mb`
+  ceiling is the direct predictor of this failure class and was tracked nowhere.
+- **Sourcetype routing fixed**: the pipeline's sourcetype eval was a fallback chain that
+  silently mislabeled any unmatched `datatype`; replaced with an explicit per-datatype
+  map with no fallback.
+- **Removed** the orphaned `mac-perf-snapshots` File input and its `macos:perf:snapshot`
+  sourcetype — the external NDJSON collector that fed it was deliberately deleted.
+  **BREAKING** for any dashboard/alert filtering `sourcetype=macos:perf:snapshot` or
+  relying on `MAC_PERF_SNAPSHOTS_DIR`.
 
 ### v0.3.1 (2026-07-08)
 

@@ -9,12 +9,46 @@ inputs:
     sendToRoutes: true
     pqEnabled: false
     streamtags: []
-    # NSPredicate. BEGINSWITH "com.apple" captures every Apple system subsystem
-    # (kernel, WindowServer, security, network, power, Spotlight, Time Machine,
-    # TCC, sandbox, etc.). Use TRUEPREDICATE if you also want 3rd-party app logs.
-    predicate: 'subsystem BEGINSWITH "com.apple"'
-    # Read only new entries on (re)start; switch to "allEvents" for a full backfill.
-    readMode: lastEntry
+    # NSPredicate narrowed to the panic/thermal/jetsam signal path (v0.4.0):
+    # the broad "subsystem BEGINSWITH com.apple" predicate this pack
+    # shipped with ran 1.33M events/day, dominated by runningboardd/WallpaperAgent
+    # noise matching bare "watchdog"/"thermal", and buried the one DumpPanic line
+    # that mattered. This predicate measured 63k/day (21x reduction) while still
+    # catching it.
+    #
+    # "memory pressure" is deliberately NOT scoped to process == "kernel", unlike
+    # every other clause in the parenthesized group. Scoping it there looked
+    # consistent but was measured wrong: the kernel does not use that phrasing —
+    # every real hit is userspace. Measured with `log show` over the same window,
+    # twice, hours apart:
+    #   unscoped 'eventMessage CONTAINS[c] "memory pressure"'         -> 73-93 events
+    #   the identical term scoped inside process == "kernel"          ->  0 events
+    # The decisive line, 313ms after the panic string, from the process most
+    # likely implicated, and dropped entirely by the kernel-scoped form:
+    #   modelmanagerd[639] Critical Memory Pressure Event Loop
+    # Cost of unscoping: ~0.4-0.5% additional volume over the same window
+    # (measured), well within the 21x narrowing above. Do not move this back
+    # inside the kernel group — it reads as an obvious tidy-up and silently
+    # reintroduces a zero-match clause.
+    #
+    # "GPU restart" / "gpu hang" are UNVERIFIED: no evidence macOS actually emits
+    # either string has been found. Kept because rare-but-real and invented are
+    # not distinguishable without a log window containing an actual GPU reset,
+    # which has not occurred on this host. Do not read their presence as proof
+    # GPU resets are covered.
+    #
+    # "low swap" is kernel-scoped BY ASSUMPTION, not measurement — the identical
+    # assumption was found wrong for "memory pressure" above. The window used to
+    # verify this predicate recorded swapouts = 0, so it was never a live test
+    # case for this clause either. Closing this gap needs one `log show`
+    # measurement, unscoped vs. kernel-scoped, in a window where swap actually
+    # fills; until then, treat this clause with the same suspicion "memory
+    # pressure" deserved before it was checked.
+    predicate: '(process == "kernel" AND (eventMessage CONTAINS[c] "jetsam" OR eventMessage CONTAINS[c] "memorystatus" OR eventMessage CONTAINS[c] "low swap" OR eventMessage CONTAINS[c] "panic" OR eventMessage CONTAINS[c] "IOGPU" OR eventMessage CONTAINS[c] "AGX" OR eventMessage CONTAINS[c] "thermal")) OR eventMessage CONTAINS[c] "memory pressure" OR process == "DumpPanic" OR process == "ReportCrash" OR process == "thermalmonitord" OR subsystem == "com.apple.thermalmonitord" OR eventMessage CONTAINS[c] "userspace watchdog timeout" OR eventMessage CONTAINS[c] "GPU restart" OR eventMessage CONTAINS[c] "gpu hang"'
+    # readMode deliberately absent: "lastEntry" is NOT a valid enum value here
+    # (Cribl validator only accepts oldest|newest) and rejected this input on
+    # every restart with CrudEntityInvalidError — it never ran once. Do not
+    # re-add it; the default ("newest") is correct.
     metadata:
       - name: datatype
         value: "'macos-unified-log'"
@@ -56,7 +90,14 @@ inputs:
     sendToRoutes: true
     pqEnabled: false
     streamtags: []
-    command: "powermetrics --samplers tasks,battery,cpu_power,gpu_power,ane_power,thermal --show-process-energy -f plist -n 1 -i 5000 | /usr/bin/plutil -convert json -o - -"
+    # `plutil -convert json` cannot represent the <date> plist type, and
+    # powermetrics' fixed per-sample header always emits <key>timestamp</key>
+    # <date>...</date> — every sample failed to convert (all 38 observed
+    # failures). `-replace timestamp -string ""` strips it before the
+    # JSON conversion; `-remove` was tried first and hard-fails with
+    # "No value to remove at key path timestamp" whenever the key is briefly
+    # absent, so `-replace` (which creates the key if missing) is required.
+    command: "powermetrics --samplers tasks,battery,cpu_power,gpu_power,ane_power,thermal --show-process-energy -f plist -n 1 -i 5000 | /usr/bin/plutil -replace timestamp -string \"\" -o - - | /usr/bin/plutil -convert json -o - -"
     interval: 300
     metadata:
       - name: datatype
@@ -76,19 +117,78 @@ inputs:
       - name: datatype
         value: "'macos-power-battery'"
 
-  # File source — collect-snapshot.py drops NDJSON perf snapshots here.
-  # Separate data product from the native Sources; kept as-is.
-  mac-perf-snapshots:
+  # Exec source — no native 4.18 equivalent. system_metrics exposes only
+  # memory_percent; neither wired memory nor the GPU wired-memory ceiling
+  # (iogpu.wired_limit_mb) is a native field (checked docs/source/system_metrics
+  # 4.19). A wired/ceiling ratio above ~0.9 has preceded a crash in observed
+  # data, with nothing tracking it before this input. Chained stock binaries
+  # only, no script file: vm_stat for
+  # wired pages, sysctl for the page size and ceiling (never hardcoded), ps for
+  # total resident (so leaked wired = wired - resident - baseline is
+  # calculable), awk to compute the ratio and emit JSON.
+  macos-wired-memory:
+    type: exec
+    disabled: false
+    sendToRoutes: true
+    pqEnabled: false
+    streamtags: []
+    command: "/bin/bash -c 'wp=$(/usr/bin/vm_stat | /usr/bin/awk \"/Pages wired down/{gsub(/[^0-9]/,\\\"\\\",\\$4);print \\$4}\"); pgsz=$(/usr/sbin/sysctl -n hw.pagesize); cm=$(/usr/sbin/sysctl -n iogpu.wired_limit_mb); rk=$(/bin/ps -A -o rss= | /usr/bin/awk \"{s+=\\$1} END{print s+0}\"); /usr/bin/awk -v wp=\"$wp\" -v pgsz=\"$pgsz\" -v cm=\"$cm\" -v rk=\"$rk\" \"BEGIN{wb=wp*pgsz; cb=cm*1024*1024; printf \\\"{\\\\\\\"wired_bytes\\\\\\\":%d,\\\\\\\"wired_ceiling_mb\\\\\\\":%d,\\\\\\\"wired_ceiling_bytes\\\\\\\":%d,\\\\\\\"wired_ratio\\\\\\\":%.4f,\\\\\\\"resident_bytes\\\\\\\":%d}\\\\n\\\", wb, cm, cb, wb/cb, rk*1024}\"'"
+    interval: 60
+    metadata:
+      - name: datatype
+        value: "'macos-wired-memory'"
+
+  # File sources — root and per-user macOS crash/diagnostic reports.
+  # Includes .spin (blocked-thread stacks — the single most diagnostic
+  # artifact for a blocked main-thread hang) and .shutdownStall
+  # (marks an unclean shutdown; 3 occurred in one week, unrecorded before
+  # this). Wired to the "MacOS Crash Reports" ruleset (see breakers.yml):
+  # the default fallback breaker truncates at 51200 bytes and every .ips
+  # file (2-3 MB) was silently cut.
+  in_macos_crashreports_sys:
     type: file
     disabled: false
     sendToRoutes: true
     pqEnabled: false
     streamtags: []
-    path: "$MAC_PERF_SNAPSHOTS_DIR"
+    mode: manual
+    interval: 60
+    path: "/Library/Logs/DiagnosticReports/"
     filenames:
-      - "*.ndjson"
-    tailOnly: false
-    interval: 30
+      - "*/*.ips"
+      - "*/*.panic"
+      - "*/*.crash"
+      - "*/*.diag"
+      - "*/*.hang"
+      - "*/*.spin"
+      - "*/*.shutdownStall"
+    tailOnly: true
+    breakerRulesets:
+      - "MacOS Crash Reports"
     metadata:
       - name: datatype
-        value: "'macos-perf-snapshot'"
+        value: "'macos-crashreport'"
+
+  in_macos_crashreports_user:
+    type: file
+    disabled: false
+    sendToRoutes: true
+    pqEnabled: false
+    streamtags: []
+    mode: manual
+    interval: 60
+    path: "$HOME/Library/Logs/DiagnosticReports/"
+    filenames:
+      - "*/*.ips"
+      - "*/*.panic"
+      - "*/*.crash"
+      - "*/*.diag"
+      - "*/*.hang"
+      - "*/*.spin"
+      - "*/*.shutdownStall"
+    tailOnly: true
+    breakerRulesets:
+      - "MacOS Crash Reports"
+    metadata:
+      - name: datatype
+        value: "'macos-crashreport'"
